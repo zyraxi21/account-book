@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 Fluent CanvasBackground 一致，避免冷启动首帧的背景跳变。 -->
+    <color name="book_window_background">#F5F5F5</color>
+</resources>

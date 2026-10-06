@@ -12,12 +12,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -29,10 +27,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
-import com.microsoft.fluentui.tokenized.AppBar
 import com.microsoft.fluentui.tokenized.controls.Button
-import com.microsoft.fluentui.tokenized.navigation.TabBar
-import com.microsoft.fluentui.tokenized.navigation.TabData
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.Channel
 import io.github.zyraxi21.accountbook.domain.Income
@@ -86,14 +81,10 @@ fun BookApp(vm: BookViewModel) {
         if (hidden) { focus.clearFocus(force = true); keyboard?.hide() }
     }
     val messageText = message?.let { stringResource(it) }
-    Box(Modifier.fillMaxSize().background(palette.background).safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
-        Column(Modifier.widthIn(max = 840.dp).fillMaxSize()) {
-            AppBar(title = stringResource(R.string.app_name), rightAccessoryView = {
-                Button(onClick = vm::togglePrivacy, text = stringResource(R.string.privacy), style = ButtonStyle.OutlinedButton,
-                    icon = ImageVector.vectorResource(if (hidden) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                    contentDescription = stringResource(if (hidden) R.string.privacy_show else R.string.privacy_hide),
-                    modifier = Modifier.heightIn(min = 48.dp))
-            })
+    Column(Modifier.fillMaxSize().background(palette.background), horizontalAlignment = Alignment.CenterHorizontally) {
+        BookTopBar(hidden, vm::togglePrivacy)
+        Column(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
             if (hidden && !state.loading && state.storageError == null) {
                 BookText(stringResource(R.string.privacy_hint), Modifier.padding(horizontal = 20.dp, vertical = 12.dp), 13.sp, color = palette.secondary)
             }
@@ -125,15 +116,8 @@ fun BookApp(vm: BookViewModel) {
                         onAddChannel = { vm.openChannel() }, onRename = { vm.openChannel(it) }, onDelete = { deleteChannel = it })
                 }
             }
-            TabBar(tabDataList = listOf(
-                TabData(stringResource(R.string.tab_assets), ImageVector.vectorResource(R.drawable.ic_assets), onClick = { tab = 0 },
-                    accessibilityDescription = stringResource(if (tab == 0) R.string.tab_selected else R.string.tab_available, stringResource(R.string.tab_assets))),
-                TabData(stringResource(R.string.tab_income), ImageVector.vectorResource(R.drawable.ic_income), onClick = { tab = 1 },
-                    accessibilityDescription = stringResource(if (tab == 1) R.string.tab_selected else R.string.tab_available, stringResource(R.string.tab_income))),
-                TabData(stringResource(R.string.tab_settings), ImageVector.vectorResource(R.drawable.ic_settings), onClick = { tab = 2 },
-                    accessibilityDescription = stringResource(if (tab == 2) R.string.tab_selected else R.string.tab_available, stringResource(R.string.tab_settings))),
-            ), selectedIndex = tab, showIndicator = true)
         }
+        BookBottomBar(selectedIndex = tab, onSelect = { tab = it })
     }
     if (!hidden && state.storageError == null) {
         assetDraft?.let { AssetEditor(it, vm, busy, messageText) }

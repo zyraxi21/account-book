@@ -22,9 +22,15 @@
 
 ## Compose 与 Fluent 界面
 
-资产、收入、设置、编辑表单及确认对话框均由 Kotlin `@Composable` 构建，没有应用页面的 XML 布局文件。使用 Fluent `FluentTheme`、`AppBar`、`TabBar`、`Button`、`TextField`、`BasicCard`、`Dialog`；日期时间选择通过 `DisposableEffect` 托管 Fluent 原生 `DateTimePickerDialog`，离开编辑界面即销毁。
+资产、收入、设置、编辑表单及确认对话框均由 Kotlin `@Composable` 构建，没有应用页面的 XML 布局文件。使用 Fluent `FluentTheme`、`AppBar`、`Button`、`TextField`、`BasicCard`、`Dialog`；日期时间选择通过 `DisposableEffect` 托管 Fluent 原生 `DateTimePickerDialog`，离开编辑界面即销毁。底部导航参考 `D:\source\android\myapplication` 的实现，用 Compose 绘制完整导航项，并沿用 Fluent 图标尺寸、排版和颜色令牌。
 
-界面采用月度对账单布局，渠道金额右对齐，集中呈现资产、负债和净资产。浅色模式使用品牌蓝 `#0F6CBD`、背景 `#F5F5F5`、表面白、正文 `#242424`、正值绿 `#107C10`、负值红 `#C50F1F`；深色模式使用 Fluent 深色主题与对应颜色。金额使用等宽字体，页面可滚动并限制宽窗口内容宽度，启用 edge-to-edge，处理系统安全区域及编辑面板的键盘边衬。
+界面采用月度对账单布局，渠道金额右对齐，集中呈现资产、负债和净资产。默认从系统壁纸配色取得动态品牌种子，展开为 Fluent 的 16 级品牌色阶，并按官方色阶的亮度分布校准对比度；深色模式降低品牌色饱和度。按钮、输入框、汇总强调和导航选中项使用同一套品牌令牌，预览关闭动态取色时回退到 Fluent 蓝 `#0F6CBD`。[Android 动态颜色说明](https://developer.android.com/develop/ui/compose/designsystems/material3#dynamic-color-schemes)
+
+中性背景、表面和正文使用 Fluent 对应令牌；正值绿和负值红保持固定含义。金额使用等宽字体，页面可滚动并限制宽窗口内容宽度。浅色顶栏使用动态品牌色、浅色文字，深色顶栏使用中性表面色。顶栏背景延伸到状态栏，底栏背景延伸到手势及三键导航区域，系统图标明暗按实际背景对比度选择。系统边衬由各栏位消费一次，同时处理横向挖孔、桌面标题栏和编辑面板的键盘边衬。
+
+底部导航显式使用有界涟漪与独立交互源，点击区和反馈包含底部系统边衬，图标及文字仍位于系统导航区域之上；导航项提供 `Tab` 角色与选中语义。关闭系统额外的导航栏灰色遮罩，保持底栏背景连续；导航项高度随文字固有高度变化，适配大字体。[Android 系统栏说明](https://developer.android.com/develop/ui/views/layout/edge-to-edge)
+
+`BookNavigation.kt` 提供浅色和深色 Compose 预览，可在 Android Studio 中查看顶栏、对账单标题和底部导航。窗口的浅色及深色背景资源与画布一致，减少冷启动背景跳变；这些 XML 资源只配置窗口，不绘制应用页面。
 
 Fluent 发布模块的依赖声明未包含主题所需的 Compose `runtime-livedata`，本应用在 version catalog 中显式声明并引入该模块，版本由 Compose BOM 对齐，确保 `FluentTheme` 的 `observeAsState` 在运行时可用。[Compose LiveData 集成说明](https://developer.android.com/develop/ui/compose/state)
 
@@ -91,7 +97,7 @@ app/
     sms/                           纯 Kotlin 解析器、分段拼接、系统接收器
     ui/                            ViewModel、Fluent 页面、表单、主题
   src/main/res/values/strings.xml   应用文案及无障碍描述
-  src/test/                        22 项金额、统计、短信、隐私草稿单元测试
+  src/test/                        26 项金额、统计、短信、隐私草稿、主题对比度单元测试
   src/androidTest/                 加密数据库和 Compose 设备测试
   src/sharedTest/                  两类测试共用的只读仓库替身
 gradle/libs.versions.toml           全部构建插件及依赖版本目录
@@ -119,6 +125,8 @@ Android Studio 中选择 **Android App 类型的 `app` 配置**和已连接手�
 已在小米 25113PN0EC、Android 16（API 36）手机上覆盖安装并验证冷启动：加密账本成功打开，主界面正常显示，隐私默认隐藏。13 项加密数据库设备测试通过，包含首次创建中断后使用原口令恢复、损坏文件保留、渠道记忆和短信去重。修复过程中保留了原密钥封装，没有清除应用数据。
 
 **3 项界面自动测试的本轮回归尚未完成。** 测试框架在 `ActivityScenario` 同步启动活动时等待，随后设备连接断开；正常启动应用已单独验证。设备测试记录位于 `app/build/reports/device/`，未计入完成的界面回归。Android 17（API 37）的实际运行兼容性仍需在对应真机或模拟器上验证。
+
+2026-10-07 界面调整验证：26 项单元测试通过，其中 4 项主题测试覆盖动态种子、明暗配色、色阶亮度和系统栏图标对比度；Debug APK、设备测试 APK 构建及 Lint 通过，Lint 仅有此前的 6 条依赖升级提示。本轮没有连接设备或可用模拟器，新的状态栏、底部导航及涟漪尚未进行真机视觉验收，未将此前的真机结果计作本轮界面验证。
 
 连接 Android 17（API 37）真机或模拟器后执行：
 

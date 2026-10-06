@@ -6,8 +6,8 @@
     <string name="tab_assets">资产</string>
     <string name="tab_income">收入</string>
     <string name="tab_settings">设置</string>
-    <string name="tab_selected">%1$s，已选中</string>
-    <string name="tab_available">%1$s，未选中</string>
+    <string name="tab_selected">已选中</string>
+    <string name="tab_available">未选中</string>
     <string name="privacy">隐私</string>
     <string name="privacy_show">显示账务数据</string>
     <string name="privacy_hide">隐藏账务数据</string>
