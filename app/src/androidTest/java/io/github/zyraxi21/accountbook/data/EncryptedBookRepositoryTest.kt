@@ -1,0 +1,242 @@
+package io.github.zyraxi21.accountbook.data
+
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteException
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.github.zyraxi21.accountbook.data.crypto.DatabaseKeyStore
+import io.github.zyraxi21.accountbook.data.local.BookDatabase
+import io.github.zyraxi21.accountbook.data.local.EncryptedDatabaseFactory
+import io.github.zyraxi21.accountbook.data.repository.EncryptedBookRepository
+import io.github.zyraxi21.accountbook.domain.*
+import io.github.zyraxi21.accountbook.sms.IcbcSmsParser
+import io.github.zyraxi21.accountbook.sms.SmsParseResult
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
+import java.security.KeyStore
+import java.time.Instant
+import java.util.UUID
+
+@RunWith(AndroidJUnit4::class)
+class EncryptedBookRepositoryTest {
+    private val context = ApplicationProvider.getApplicationContext<Context>()
+    private lateinit var directory: File
+    private lateinit var alias: String
+    private lateinit var database: BookDatabase
+    private lateinit var repository: EncryptedBookRepository
+    private val now = Instant.parse("2026-10-06T04:35:00Z")
+
+    @Before fun setup() = runBlocking {
+        val id = UUID.randomUUID().toString()
+        directory = File(context.noBackupFilesDir, "instrumentation/$id")
+        alias = "accountbook.test.$id"
+        reopen()
+        book()
+        Unit
+    }
+
+    @After fun cleanup() {
+        database.close()
+        KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(alias) }
+        directory.deleteRecursively()
+    }
+
+    @Test fun channelMemoryAndHistoricalNamesSurviveRestart() = runBlocking {
+        val initial = book()
+        assertEquals(listOf("银行", "支付宝", "微信"), initial.activeChannels.map { it.name })
+        val bank = initial.activeChannels[0]
+        val alipay = initial.activeChannels[1]
+        repository.saveAsset(MonthlyAssetSnapshot(now, listOf(ChannelBalance(alipay.id, alipay.name, Money(200)),
+            ChannelBalance(bank.id, bank.name, Money(100))), Money.ZERO))
+        repository.renameChannel(bank.id, "历史名称验证")
+        repository.deleteChannel(alipay.id)
+        database.close(); reopen()
+        val restored = book()
+        assertEquals(listOf(bank.id), restored.settings.rememberedChannelIds)
+        assertEquals(listOf("支付宝", "银行"), restored.snapshots.single().balances.map { it.channelName })
+        assertEquals("历史名称验证", restored.activeChannels.first { it.id == bank.id }.name)
+        assertFalse(restored.activeChannels.any { it.id == alipay.id })
+        assertEquals(3, restored.channels.size)
+    }
+
+    @Test fun duplicateManualAndAutomaticImportsDoNotReappearAfterDeletion() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val parsed = parsed()
+        assertTrue(repository.importSms(parsed))
+        assertFalse(repository.importSms(parsed))
+        val income = book().incomes.single()
+        assertEquals(Money.parse("100.00"), income.amount)
+        repository.deleteIncome(income.id)
+        assertFalse(repository.importSms(parsed))
+        try {
+            repository.saveIncome(Income("manual-duplicate", parsed.title, parsed.amount, parsed.receivedAt, IncomeSource.SMS), parsed.fingerprint)
+            fail("重复粘贴应被拒绝")
+        } catch (error: BookException) { assertEquals(BookError.SMS_DUPLICATE, error.error) }
+        assertTrue(book().incomes.isEmpty())
+        database.close(); reopen()
+        assertFalse(repository.importSms(parsed))
+    }
+
+    @Test fun disabledAutoImportDoesNotConsumeTheReceipt() = runBlocking {
+        assertFalse(repository.importSms(parsed()))
+        assertTrue(book().incomes.isEmpty())
+        repository.setSmsAutoImport(true)
+        assertTrue(repository.importSms(parsed()))
+    }
+
+    @Test fun concurrentImportAndAssetRegistrationAreAtomic() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val channel = book().activeChannels.first()
+        val parsed = parsed()
+        val results = coroutineScope {
+            val snapshot = async { repository.saveAsset(MonthlyAssetSnapshot(now,
+                listOf(ChannelBalance(channel.id, channel.name, Money.parse("50"))), Money.ZERO)) }
+            val imports = List(12) { async { repository.importSms(parsed) } }.awaitAll()
+            snapshot.await()
+            imports
+        }
+        assertEquals(1, results.count { it })
+        val data = book()
+        assertEquals(1, data.incomes.size)
+        assertEquals(Money.parse("50"), data.snapshots.single().total)
+        assertEquals(listOf(channel.id), data.settings.rememberedChannelIds)
+    }
+
+    @Test fun failedAssetUpdateRollsBackChannelMemory() = runBlocking {
+        val initial = book()
+        val channel = initial.activeChannels.first()
+        repository.saveAsset(MonthlyAssetSnapshot(now, listOf(ChannelBalance(channel.id, channel.name, Money(100))), Money.ZERO))
+        val saved = book()
+        try {
+            repository.saveAsset(saved.snapshots.single().copy(balances = listOf(ChannelBalance("missing", "不存在", Money(200)))), saved.snapshots.single().month)
+            fail("不存在的渠道应被拒绝")
+        } catch (error: BookException) { assertEquals(BookError.CHANNEL_UNAVAILABLE, error.error) }
+        assertEquals(saved, book())
+    }
+
+    @Test fun databaseAndSidecarsContainNoKnownPlaintextAndFrameworkSqliteCannotRead() = runBlocking {
+        repository.addChannel("加密渠道验证")
+        repository.saveIncome(Income("encryption-test", "加密收入验证项目", Money(12345), now))
+        assertEquals("加密收入验证项目", book().incomes.single().title)
+        val databaseFile = File(directory, "accountbook.db")
+        assertFalse(databaseFile.readBytes().take(16).toByteArray().toString(Charsets.US_ASCII).startsWith("SQLite format 3"))
+        val markers = listOf("加密收入验证项目", "加密渠道验证").map { it.toByteArray().toString(Charsets.ISO_8859_1) }
+        directory.listFiles().orEmpty().filter { it.isFile }.forEach { file ->
+            val binary = file.readBytes().toString(Charsets.ISO_8859_1)
+            markers.forEach { assertFalse("文件中不应出现账务明文", binary.contains(it)) }
+        }
+        try {
+            SQLiteDatabase.openDatabase(databaseFile.path, null, SQLiteDatabase.OPEN_READONLY).use { plain ->
+                plain.rawQuery("SELECT name FROM sqlite_master", null).use { it.moveToFirst() }
+            }
+            fail("明文 SQLite 不应读取加密账本")
+        } catch (_: SQLiteException) { }
+    }
+
+    @Test fun corruptedKeyPreservesDatabaseAndDoesNotGenerateAnotherKey() = runBlocking {
+        repository.saveIncome(Income("preserve", "保留原数据", Money(1), now))
+        database.close()
+        val databaseFile = File(directory, "accountbook.db")
+        val original = databaseFile.readBytes()
+        val keyFile = DatabaseKeyStore(directory, alias).keyFile
+        val damaged = keyFile.readBytes().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
+        keyFile.writeBytes(damaged)
+        try { EncryptedDatabaseFactory.open(context, directory, alias); fail("损坏密钥应被拒绝")
+        } catch (error: BookException) { assertEquals(BookError.STORAGE_CORRUPTED, error.error) }
+        assertArrayEquals(original, databaseFile.readBytes())
+        assertArrayEquals(damaged, keyFile.readBytes())
+    }
+
+    @Test fun missingKeyPreservesExistingDatabase() = runBlocking {
+        repository.saveIncome(Income("preserve", "保留原数据", Money(1), now))
+        database.close()
+        val file = File(directory, "accountbook.db")
+        val original = file.readBytes()
+        assertTrue(DatabaseKeyStore(directory, alias).keyFile.delete())
+        try { EncryptedDatabaseFactory.open(context, directory, alias); fail("缺失密钥应被拒绝")
+        } catch (error: BookException) { assertEquals(BookError.STORAGE_KEY_MISSING, error.error) }
+        assertArrayEquals(original, file.readBytes())
+    }
+
+    @Test fun missingKeystoreEntryDoesNotRecreateItForAnExistingEnvelope() = runBlocking {
+        repository.saveIncome(Income("entry", "密钥条目验证", Money(1), now))
+        database.close()
+        val keyFile = DatabaseKeyStore(directory, alias).keyFile
+        val original = keyFile.readBytes()
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(alias) }
+        try { EncryptedDatabaseFactory.open(context, directory, alias); fail("缺失封装密钥应被拒绝")
+        } catch (error: BookException) { assertEquals(BookError.STORAGE_KEY_MISSING, error.error) }
+        assertFalse(keyStore.containsAlias(alias))
+        assertArrayEquals(original, keyFile.readBytes())
+    }
+
+    @Test fun missingDatabasePreservesItsEnvelopeAndDoesNotCreateAnEmptyBook() = runBlocking {
+        repository.saveIncome(Income("missing-database", "数据库缺失验证", Money(1), now))
+        database.close()
+        val keyFile = DatabaseKeyStore(directory, alias).keyFile
+        val originalKey = keyFile.readBytes()
+        val file = File(directory, "accountbook.db")
+        assertTrue(file.delete())
+        try { EncryptedDatabaseFactory.open(context, directory, alias); fail("缺失数据库不得创建空账本")
+        } catch (error: BookException) { assertEquals(BookError.STORAGE_DATABASE_MISSING, error.error) }
+        assertFalse(file.exists())
+        assertArrayEquals(originalKey, keyFile.readBytes())
+    }
+
+    @Test fun corruptedDatabaseIsNotDeletedOrRebuilt() = runBlocking {
+        repository.saveIncome(Income("corrupt-database", "数据库损坏验证", Money(1), now))
+        database.close()
+        val file = File(directory, "accountbook.db")
+        val damaged = file.readBytes().also { bytes -> bytes.fill(0, 0, minOf(4096, bytes.size)) }
+        file.writeBytes(damaged)
+        val keyFile = DatabaseKeyStore(directory, alias).keyFile
+        val originalKey = keyFile.readBytes()
+        reopen()
+        try { book(); fail("损坏的数据库不应作为空账本打开")
+        } catch (_: SQLiteException) { }
+        database.close()
+        assertArrayEquals(damaged, file.readBytes())
+        assertArrayEquals(originalKey, keyFile.readBytes())
+    }
+
+    @Test fun editingAndMovingMonthlyRecordsUpdatesSummariesWithoutDuplicates() = runBlocking {
+        val bank = book().activeChannels.first()
+        val previousTime = Instant.parse("2026-09-30T12:00:00Z")
+        val previous = MonthlyAssetSnapshot(previousTime, listOf(ChannelBalance(bank.id, bank.name, Money(10000))), Money(1000))
+        val current = MonthlyAssetSnapshot(now, listOf(ChannelBalance(bank.id, bank.name, Money(11000))), Money(2000))
+        repository.saveAsset(previous)
+        repository.saveAsset(current)
+        repository.saveIncome(Income("editable", "汇总更新验证", Money(3000), now))
+        assertEquals(Money(3000), book().summary(current.month).estimatedExpense)
+        repository.saveIncome(Income("editable", "汇总更新验证", Money(5000), now))
+        assertEquals(Money(5000), book().summary(current.month).estimatedExpense)
+        try { repository.saveAsset(current); fail("同月不得重复登记")
+        } catch (error: BookException) { assertEquals(BookError.MONTH_EXISTS, error.error) }
+        val moved = previous.copy(registeredAt = previousTime.atZone(BOOK_ZONE).minusMonths(1).toInstant())
+        repository.saveAsset(moved, previous.month)
+        assertNull(book().snapshot(previous.month))
+        assertNull(book().summary(current.month).estimatedExpense)
+        repository.deleteAsset(moved.month)
+        assertEquals(1, book().snapshots.size)
+        database.close(); reopen()
+        assertEquals(Money(5000), book().cumulativeIncome)
+    }
+
+    private fun reopen() {
+        database = EncryptedDatabaseFactory.open(context, directory, alias)
+        repository = EncryptedBookRepository({ database }, listOf("银行", "支付宝", "微信"))
+    }
+    private suspend fun book() = withTimeout(15_000) { repository.observeBook().first() }
+    private fun parsed() = (IcbcSmsParser().parse("尾号1234卡10月6日12:34工商银行收入(工资)100.00元，余额5000.00元。【工商银行】", now) as SmsParseResult.Success).income
+}
