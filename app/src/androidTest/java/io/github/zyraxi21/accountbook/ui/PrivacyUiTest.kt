@@ -34,7 +34,8 @@ class PrivacyUiTest {
         compose.onAllNodesWithText("¥ 1,234.56", useUnmergedTree = true).assertCountEquals(0)
         compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
         compose.onNodeWithText("隐私银行").assertExists()
-        compose.onNodeWithText("¥ 1,234.56").assertExists()
+        // 此用例只有一个渠道，其余额与总资产相同，界面应同时显示这两个值。
+        compose.onAllNodesWithText("¥ 1,234.56").assertCountEquals(2)
         compose.onNodeWithContentDescription(context.getString(R.string.privacy_hide)).performClick()
         compose.onAllNodesWithText("隐私银行", useUnmergedTree = true).assertCountEquals(0)
         compose.onAllNodesWithText("¥ 1,234.56", useUnmergedTree = true).assertCountEquals(0)

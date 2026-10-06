@@ -202,12 +202,37 @@ class EncryptedBookRepositoryTest {
         file.writeBytes(damaged)
         val keyFile = DatabaseKeyStore(directory, alias).keyFile
         val originalKey = keyFile.readBytes()
-        reopen()
-        try { book(); fail("损坏的数据库不应作为空账本打开")
+        try { reopen(); book(); fail("损坏的数据库不应作为空账本打开")
         } catch (_: SQLiteException) { }
         database.close()
         assertArrayEquals(damaged, file.readBytes())
         assertArrayEquals(originalKey, keyFile.readBytes())
+    }
+
+    @Test fun interruptedFirstCreationResumesWithTheOriginalPassword() = runBlocking {
+        val interruptedDirectory = File(directory, "interrupted-setup")
+        val interruptedAlias = "$alias.interrupted"
+        try {
+            val keyStore = DatabaseKeyStore(interruptedDirectory, interruptedAlias)
+            val originalPassword = keyStore.loadOrCreate(databaseExists = false)
+            try {
+                assertTrue(keyStore.pendingKeyFile.exists())
+                assertFalse(keyStore.keyFile.exists())
+                val resumedPassword = keyStore.loadOrCreate(databaseExists = false)
+                try { assertArrayEquals(originalPassword, resumedPassword) } finally { resumedPassword.fill(0) }
+                val resumed = EncryptedDatabaseFactory.open(context, interruptedDirectory, interruptedAlias)
+                try {
+                    val resumedRepository = EncryptedBookRepository({ resumed }, listOf("银行", "支付宝", "微信"))
+                    assertEquals(3, resumedRepository.observeBook().first().activeChannels.size)
+                    assertTrue(keyStore.keyFile.exists())
+                    assertFalse(keyStore.pendingKeyFile.exists())
+                    val persistedPassword = keyStore.loadOrCreate(databaseExists = true)
+                    try { assertArrayEquals(originalPassword, persistedPassword) } finally { persistedPassword.fill(0) }
+                } finally { resumed.close() }
+            } finally { originalPassword.fill(0) }
+        } finally {
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry(interruptedAlias) }
+        }
     }
 
     @Test fun editingAndMovingMonthlyRecordsUpdatesSummariesWithoutDuplicates() = runBlocking {

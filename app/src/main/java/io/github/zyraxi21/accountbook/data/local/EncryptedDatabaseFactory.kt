@@ -16,12 +16,22 @@ object EncryptedDatabaseFactory {
         val database = File(directory, "accountbook.db")
         val sidecarExists = listOf("-wal", "-shm", "-journal").any { File(database.path + it).exists() }
         if (!database.exists() && sidecarExists) throw BookException(BookError.STORAGE_DATABASE_MISSING)
-        val password = DatabaseKeyStore(directory, keyAlias).loadOrCreate(database.exists())
+        val keyStore = DatabaseKeyStore(directory, keyAlias)
+        val password = keyStore.loadOrCreate(database.exists())
         System.loadLibrary("sqlcipher")
         Logger.setTarget(NoopTarget())
-        return Room.databaseBuilder(context.applicationContext, BookDatabase::class.java, database.absolutePath)
+        val bookDatabase = Room.databaseBuilder(context.applicationContext, BookDatabase::class.java, database.absolutePath)
             .openHelperFactory(SupportOpenHelperFactory(password))
             .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
             .build()
+        try {
+            // Room 默认延迟打开，必须确认数据库创建成功后才能完成首次密钥提交。
+            bookDatabase.openHelper.writableDatabase
+            keyStore.completeInitialization(password)
+            return bookDatabase
+        } catch (error: Exception) {
+            runCatching { bookDatabase.close() }
+            throw error
+        }
     }
 }

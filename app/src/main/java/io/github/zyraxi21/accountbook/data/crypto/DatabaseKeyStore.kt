@@ -23,33 +23,32 @@ class DatabaseKeyStore(
     private val alias: String = "accountbook.database.wrapping.v1",
 ) {
     val keyFile: File get() = File(directory, "database-key.v1")
+    val pendingKeyFile: File get() = File(directory, "database-key.pending.v1")
 
     fun loadOrCreate(databaseExists: Boolean): ByteArray = synchronized(lock) {
         try {
             val atomicFile = AtomicFile(keyFile)
             val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            if (keyFile.exists() || File(keyFile.path + ".bak").exists()) {
+            if (envelopeExists(keyFile)) {
                 if (!databaseExists) throw BookException(BookError.STORAGE_DATABASE_MISSING)
                 val key = keyStore.getKey(alias, null) as? SecretKey
                     ?: throw BookException(BookError.STORAGE_KEY_MISSING)
                 return@synchronized unwrap(readEnvelope(atomicFile), key)
+            }
+            // 只有尚未完成首次创建的口令可以继续初始化，已创建过的账本仍严格禁止重建。
+            if (envelopeExists(pendingKeyFile)) {
+                val key = keyStore.getKey(alias, null) as? SecretKey
+                    ?: throw BookException(BookError.STORAGE_KEY_MISSING)
+                return@synchronized unwrap(readEnvelope(AtomicFile(pendingKeyFile)), key)
             }
             if (databaseExists) throw BookException(BookError.STORAGE_KEY_MISSING)
             if (!directory.isDirectory && !directory.mkdirs()) throw BookException(BookError.STORAGE_UNAVAILABLE)
             val key = (keyStore.getKey(alias, null) as? SecretKey) ?: createWrappingKey()
             val password = ByteArray(32).also(SecureRandom()::nextBytes)
             val encrypted = wrap(password, key)
-            val stream = atomicFile.startWrite()
             try {
-                stream.write(encrypted)
-                atomicFile.finishWrite(stream)
-                // 确认封装文件真正落盘后，才允许使用随机口令创建数据库。
-                val persistedPassword = unwrap(readEnvelope(atomicFile), key)
-                try {
-                    if (!password.contentEquals(persistedPassword)) throw BookException(BookError.STORAGE_CORRUPTED)
-                } finally { persistedPassword.fill(0) }
+                persistEnvelope(AtomicFile(pendingKeyFile), encrypted, password, key)
             } catch (error: Exception) {
-                atomicFile.failWrite(stream)
                 password.fill(0)
                 throw error
             }
@@ -58,6 +57,48 @@ class DatabaseKeyStore(
             throw error
         } catch (error: Exception) {
             throw BookException(BookError.STORAGE_CORRUPTED, error)
+        }
+    }
+
+    /** 数据库真正打开后才完成密钥提交，进程在此前终止可继续使用原来的随机口令。 */
+    fun completeInitialization(password: ByteArray) = synchronized(lock) {
+        try {
+            if (envelopeExists(keyFile)) return@synchronized
+            if (!envelopeExists(pendingKeyFile)) throw BookException(BookError.STORAGE_KEY_MISSING)
+            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            val key = keyStore.getKey(alias, null) as? SecretKey
+                ?: throw BookException(BookError.STORAGE_KEY_MISSING)
+            val pending = AtomicFile(pendingKeyFile)
+            val envelope = readEnvelope(pending)
+            val originalPassword = unwrap(envelope, key)
+            try {
+                if (!password.contentEquals(originalPassword)) throw BookException(BookError.STORAGE_CORRUPTED)
+            } finally { originalPassword.fill(0) }
+            persistEnvelope(AtomicFile(keyFile), envelope, password, key)
+            // 正式文件已原子保存并验证；清理失败也不会影响下次读取正式文件。
+            pendingKeyFile.delete()
+            Unit
+        } catch (error: BookException) {
+            throw error
+        } catch (error: Exception) {
+            throw BookException(BookError.STORAGE_CORRUPTED, error)
+        }
+    }
+
+    private fun envelopeExists(file: File) = file.exists() || File(file.path + ".bak").exists()
+
+    private fun persistEnvelope(atomicFile: AtomicFile, envelope: ByteArray, password: ByteArray, key: SecretKey) {
+        val stream = atomicFile.startWrite()
+        try {
+            stream.write(envelope)
+            atomicFile.finishWrite(stream)
+            val persistedPassword = unwrap(readEnvelope(atomicFile), key)
+            try {
+                if (!password.contentEquals(persistedPassword)) throw BookException(BookError.STORAGE_CORRUPTED)
+            } finally { persistedPassword.fill(0) }
+        } catch (error: Exception) {
+            atomicFile.failWrite(stream)
+            throw error
         }
     }
 

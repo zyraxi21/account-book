@@ -26,6 +26,8 @@
 
 界面采用月度对账单布局，渠道金额右对齐，集中呈现资产、负债和净资产。浅色模式使用品牌蓝 `#0F6CBD`、背景 `#F5F5F5`、表面白、正文 `#242424`、正值绿 `#107C10`、负值红 `#C50F1F`；深色模式使用 Fluent 深色主题与对应颜色。金额使用等宽字体，页面可滚动并限制宽窗口内容宽度，启用 edge-to-edge，处理系统安全区域及编辑面板的键盘边衬。
 
+Fluent 发布模块的依赖声明未包含主题所需的 Compose `runtime-livedata`，本应用在 version catalog 中显式声明并引入该模块，版本由 Compose BOM 对齐，确保 `FluentTheme` 的 `observeAsState` 在运行时可用。[Compose LiveData 集成说明](https://developer.android.com/develop/ui/compose/state)
+
 XML 文件负责 Android Manifest、统一文案 `strings.xml`、主题、矢量图标、启动器图标及备份规则。依赖采用与 `D:\source\android\fluentui-android` 本地源码对应的已发布 Fluent 模块，无需将其旧版 Gradle 工程加入本项目。
 
 ## 本地加密与数据生命周期
@@ -33,6 +35,8 @@ XML 文件负责 Android Manifest、统一文案 `strings.xml`、主题、矢量
 Room 2.8.5 通过 SQLCipher 4.19.1 的 `SupportOpenHelperFactory` 打开加密数据库。资产、渠道、收入、短信去重凭据、自动登记开关和渠道记忆都保存于该数据库，没有明文账务偏好文件。
 
 首次使用生成 32 字节随机数据库口令，用 Android Keystore 中的 AES-256-GCM 密钥封装后通过 `AtomicFile` 保存；封装文件经过校验后才用于创建数据库。密钥不硬编码，账务和短信正文不写入日志。数据库、WAL 等旁路文件和密钥封装文件位于应用私有的 `noBackupFilesDir/ledger`。SQLCipher 日志关闭，未配置任何破坏性数据库迁移或自动清库逻辑。
+
+首次创建时口令先封装到 `database-key.pending.v1`，数据库实际打开并完成结构校验后，再原子提交为 `database-key.v1`。若进程在首次创建中途终止，下次使用同一口令继续初始化；已完成创建的账本仍禁止在数据库缺失时自动重建。
 
 数据库文件缺失、密钥丢失或封装校验失败时保留现有文件并显示错误，禁止自动创建空账本覆盖原数据。数据库结构初始 schema 位于 `app/schemas/io.github.zyraxi21.accountbook.data.local.BookDatabase/1.json`，仅包含结构，不含用户数据。
 
@@ -101,6 +105,8 @@ gradle/libs.versions.toml           全部构建插件及依赖版本目录
 .\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
 ```
 
+Android Studio 中选择 **Android App 类型的 `app` 配置**和已连接手机，再点击 Run。名称为 `main`、`unitTest`、`androidTest` 的 Android App 配置不代表测试运行器；运行设备测试需要 Android Instrumented Tests 配置，或使用下面的命令。
+
 输出文件：
 
 - 安装包：`app/build/outputs/apk/debug/app-debug.apk`，由本机开发密钥签名，适合自行安装验证。
@@ -108,9 +114,11 @@ gradle/libs.versions.toml           全部构建插件及依赖版本目录
 - 单元测试报告：`app/build/reports/tests/testDebugUnitTest/index.html`。
 - Lint 报告：`app/build/reports/lint-results-debug.html`。
 
-2026-10-06 验证情况：22 项单元测试通过；Debug APK、设备测试 APK 编译通过；Lint 无错误。依赖升级提示由版本检查产生，依赖版本保持已验证的模板工具链及实施计划所指定的版本。
+2026-10-06 验证情况：22 项单元测试通过；Debug APK、设备测试 APK 编译通过；Lint 无错误，另有 6 条依赖升级提示。依赖版本保持已验证的模板工具链及实施计划所指定的版本。
 
-**当前没有连接真机或配置模拟器，15 项设备测试尚未运行。** Keystore、SQLCipher 原生库及 Fluent 控件在 API 37 的实际运行兼容性，需要在设备上验证；设备测试编译通过不代表这些运行检查已通过。
+已在小米 25113PN0EC、Android 16（API 36）手机上覆盖安装并验证冷启动：加密账本成功打开，主界面正常显示，隐私默认隐藏。13 项加密数据库设备测试通过，包含首次创建中断后使用原口令恢复、损坏文件保留、渠道记忆和短信去重。修复过程中保留了原密钥封装，没有清除应用数据。
+
+**3 项界面自动测试的本轮回归尚未完成。** 测试框架在 `ActivityScenario` 同步启动活动时等待，随后设备连接断开；正常启动应用已单独验证。设备测试记录位于 `app/build/reports/device/`，未计入完成的界面回归。Android 17（API 37）的实际运行兼容性仍需在对应真机或模拟器上验证。
 
 连接 Android 17（API 37）真机或模拟器后执行：
 
@@ -118,7 +126,7 @@ gradle/libs.versions.toml           全部构建插件及依赖版本目录
 .\gradlew.bat :app:connectedDebugAndroidTest --console=plain
 ```
 
-设备测试覆盖加密重启读写、明文 SQLite 拒读、数据库及旁路文件明文扫描、数据库和密钥损坏后的文件保留、渠道记忆及历史名称、月份唯一约束与编辑、重复入账与删除后重投、并发导入、隐私语义、后台隐藏及编辑草稿恢复。
+设备测试覆盖加密重启读写、首次创建中断恢复、明文 SQLite 拒读、数据库及旁路文件明文扫描、数据库和密钥损坏后的文件保留、渠道记忆及历史名称、月份唯一约束与编辑、重复入账与删除后重投、并发导入、隐私语义、后台隐藏及编辑草稿恢复。
 
 人工验收还需检查：短信权限拒绝及安装器限制；真实分段工行短信到达后的自动登记；大字体、横屏、宽窗口和深色模式；日期时间选择器；键盘弹出后的表单滚动和按钮可达性；截图和最近任务预览保护。
 
