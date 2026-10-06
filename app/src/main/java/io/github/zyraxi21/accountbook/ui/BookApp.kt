@@ -1,9 +1,11 @@
 package io.github.zyraxi21.accountbook.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
 import com.microsoft.fluentui.tokenized.controls.Button
 import io.github.zyraxi21.accountbook.R
+import io.github.zyraxi21.accountbook.data.transfer.ExportFormat
 import io.github.zyraxi21.accountbook.domain.Channel
 import io.github.zyraxi21.accountbook.domain.Income
 import io.github.zyraxi21.accountbook.ui.assets.AssetEditor
@@ -53,6 +56,11 @@ fun BookApp(vm: BookViewModel) {
     val channelDraft by vm.channelDraft.collectAsStateWithLifecycle()
     val smsText by vm.smsText.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
+    val importSummary by vm.importSummary.collectAsStateWithLifecycle()
+    val transferTask by vm.transferTask.collectAsStateWithLifecycle()
+    val transferBusy by vm.transferBusy.collectAsStateWithLifecycle()
+    val transferProgress by vm.transferProgress.collectAsStateWithLifecycle()
+    val confirmReplace by vm.confirmReplace.collectAsStateWithLifecycle()
     val palette = LocalBookPalette.current
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -68,6 +76,26 @@ fun BookApp(vm: BookViewModel) {
         smsPermission = granted
         if (granted) vm.setSmsEnabled(true) else vm.notifyMessage(R.string.sms_grant_failed)
     }
+    // 导出：由系统文件选择器决定保存位置，文件名与格式由发起时的任务决定。
+    // 用可变的 mime 类型承载 JSON 与 CSV，具体值在启动选择器前按任务设置。
+    var exportMime by remember { mutableStateOf(ExportFormat.JSON.mimeType) }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(exportMime)) { uri ->
+        vm.completeExport(uri)
+    }
+    // 导入：只接受 JSON/CSV；文件名用于在扩展名不可靠时判断内容格式。
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        vm.completeImport(uri, displayName(context, uri))
+    }
+    LaunchedEffect(transferTask) {
+        when (val task = transferTask) {
+            is TransferTask.Export -> {
+                exportMime = task.format.mimeType
+                exportLauncher.launch("${task.format.baseName}.${task.format.extension}")
+            }
+            is TransferTask.Import -> importLauncher.launch(arrayOf("application/json", "text/csv", "text/comma-separated-values", "text/plain"))
+            null -> Unit
+        }
+    }
     DisposableEffect(lifecycle, context) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -80,7 +108,17 @@ fun BookApp(vm: BookViewModel) {
     LaunchedEffect(hidden) {
         if (hidden) { focus.clearFocus(force = true); keyboard?.hide() }
     }
-    val messageText = message?.let { stringResource(it) }
+    val summary = importSummary
+    val messageText = message?.let { template ->
+        if (summary != null && summary.template == template) {
+            stringResource(template, summary.channels, summary.snapshots, summary.incomes)
+        } else {
+            // 空文件也可能解析成功，此时用"没有可写入记录"代替条数说明。
+            if (summary != null && summary.channels + summary.snapshots + summary.incomes == 0) {
+                stringResource(R.string.import_nothing_to_write)
+            } else stringResource(template)
+        }
+    }
     Column(Modifier.fillMaxSize().background(palette.background), horizontalAlignment = Alignment.CenterHorizontally) {
         BookTopBar(hidden, vm::togglePrivacy)
         Column(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()
@@ -107,13 +145,17 @@ fun BookApp(vm: BookViewModel) {
                         vm::currentMonth, vm::openAssets, { deleteAsset = true })
                     tab == 1 -> IncomeScreen(state.data, hidden, busy, { vm.openIncome() }, vm::openSmsInput,
                         { vm.openIncome(it) }, { deleteIncome = it })
-                    else -> SettingsScreen(state.data, hidden, busy, smsPermission,
+                    else -> SettingsScreen(state.data, hidden, busy, smsPermission, transferEnabled = !hidden && state.storageError == null,
+                        transferProgress = transferProgress,
                         onSmsChange = { enabled ->
                             if (!enabled || smsPermission) vm.setSmsEnabled(enabled) else permissionExplanation = true
                         },
                         onPermissionSettings = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                             Uri.fromParts("package", context.packageName, null))) },
-                        onAddChannel = { vm.openChannel() }, onRename = { vm.openChannel(it) }, onDelete = { deleteChannel = it })
+                        onAddChannel = { vm.openChannel() }, onRename = { vm.openChannel(it) }, onDelete = { deleteChannel = it },
+                        onExportJson = { vm.startExport(ExportFormat.JSON) },
+                        onExportCsv = { vm.startExport(ExportFormat.CSV) },
+                        onImport = vm::requestImport)
                 }
             }
         }
@@ -131,6 +173,12 @@ fun BookApp(vm: BookViewModel) {
         deleteChannel?.let { channel -> ConfirmDialog(stringResource(R.string.delete_channel_title), stringResource(R.string.delete_channel_hint), busy,
             { deleteChannel = null }, { deleteChannel = null; vm.deleteChannel(channel.id) }) }
     }
+    if (confirmReplace) {
+        EditorDialog(stringResource(R.string.import_replace_title), busy = transferBusy, onClose = vm::cancelImport,
+            saveLabel = stringResource(R.string.import_confirm_replace), onSave = vm::startImportAfterConfirm) {
+            BookText(stringResource(R.string.import_replace_message))
+        }
+    }
     if (permissionExplanation) {
         EditorDialog(stringResource(R.string.sms_permission_required), busy = false, onClose = { permissionExplanation = false },
             saveLabel = stringResource(R.string.request_permission), onSave = {
@@ -138,4 +186,14 @@ fun BookApp(vm: BookViewModel) {
                 permissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
             }) { BookText(stringResource(R.string.sms_permission_explanation)) }
     }
+}
+
+/** 读取系统文件选择器返回的显示名，提供方不响应查询时退化为空串。 */
+private fun displayName(context: Context, uri: Uri?): String {
+    if (uri == null) return ""
+    return runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }.getOrNull().orEmpty()
 }

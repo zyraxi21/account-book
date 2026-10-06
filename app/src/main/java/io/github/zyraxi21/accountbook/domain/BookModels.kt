@@ -11,6 +11,10 @@ enum class BookError {
     CHANNEL_REQUIRED, CHANNEL_NAME_REQUIRED, CHANNEL_NAME_EXISTS, CHANNEL_UNAVAILABLE,
     MONTH_EXISTS, RECORD_NOT_FOUND, INVALID_DATE, SMS_FORMAT, SMS_DATE, SMS_DUPLICATE,
     STORAGE_UNAVAILABLE, STORAGE_KEY_MISSING, STORAGE_DATABASE_MISSING, STORAGE_CORRUPTED,
+    IMPORT_EMPTY_FILE, IMPORT_UNKNOWN_FORMAT, IMPORT_MALFORMED, IMPORT_UNSUPPORTED_VERSION,
+    IMPORT_MISSING_FIELD, IMPORT_INVALID_FIELD, IMPORT_INVALID_DATE, IMPORT_DUPLICATE_MONTH,
+    IMPORT_DUPLICATE_TITLE, IMPORT_TOO_LARGE, IMPORT_LIMIT_EXCEEDED,
+    EXPORT_UNAVAILABLE, FILE_TOO_LARGE,
 }
 
 class BookException(val error: BookError, cause: Throwable? = null) : Exception(error.name, cause)
@@ -38,6 +42,8 @@ data class Income(
 data class BookSettings(
     val smsAutoImportEnabled: Boolean = false,
     val rememberedChannelIds: List<String> = emptyList(),
+    /** 最近一次成功导出的时间，仅用于在设置页说明数据去向。 */
+    val exportedAt: Instant? = null,
 )
 data class BookData(
     val channels: List<Channel> = emptyList(),

@@ -24,8 +24,11 @@ import io.github.zyraxi21.accountbook.ui.components.*
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 
 @Composable
-fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission: Boolean, onSmsChange: (Boolean) -> Unit,
-                   onPermissionSettings: () -> Unit, onAddChannel: () -> Unit, onRename: (Channel) -> Unit, onDelete: (Channel) -> Unit) {
+fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission: Boolean, transferEnabled: Boolean,
+                   transferProgress: Int?,
+                   onSmsChange: (Boolean) -> Unit, onPermissionSettings: () -> Unit, onAddChannel: () -> Unit,
+                   onRename: (Channel) -> Unit, onDelete: (Channel) -> Unit,
+                   onExportJson: () -> Unit, onExportCsv: () -> Unit, onImport: () -> Unit) {
     val palette = LocalBookPalette.current
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { SectionHeading(stringResource(R.string.tab_settings)) }
@@ -64,6 +67,9 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
             BookText(stringResource(R.string.encrypted_local_title), weight = FontWeight.Medium)
             BookText(stringResource(R.string.encrypted_local_hint), size = 14.sp, color = palette.secondary)
         } }
+        item {
+            FileTransferCard(data, hidden, transferEnabled, busy, transferProgress, onExportJson, onExportCsv, onImport)
+        }
     }
 }
 

@@ -4,6 +4,7 @@ import io.github.zyraxi21.accountbook.domain.*
 import io.github.zyraxi21.accountbook.sms.ParsedIcbcIncome
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.time.Instant
 import java.time.YearMonth
 
 /** 只用于验证 UI 隐私与草稿；真实持久化行为由加密数据库测试验证。 */
@@ -19,5 +20,7 @@ class ReadOnlyBookRepository(initial: BookData) : BookRepository {
     override suspend fun deleteChannel(id: String): Unit = unsupported()
     override suspend fun setSmsAutoImport(enabled: Boolean): Unit = unsupported()
     override suspend fun importSms(parsed: ParsedIcbcIncome, requireAutoEnabled: Boolean): Boolean = unsupported()
+    override suspend fun recordExport(exportedAt: Instant): Unit = unsupported()
+    override suspend fun importBook(data: BookData): ImportMode = unsupported()
     private fun unsupported(): Nothing = throw AssertionError("隐私测试不应写入账务")
 }

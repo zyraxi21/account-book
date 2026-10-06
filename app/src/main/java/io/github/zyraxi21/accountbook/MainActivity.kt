@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setRecentsScreenshotEnabled(false)
         val container = (application as AccountBookApplication).container
-        bookViewModel = ViewModelProvider(this, BookViewModel.Factory(container.repository, container.smsParser))[BookViewModel::class.java]
+        bookViewModel = ViewModelProvider(this, BookViewModel.Factory(container.repository, container.smsParser, container.transfer))[BookViewModel::class.java]
         setContent { AccountBookTheme { BookApp(bookViewModel) } }
     }
 

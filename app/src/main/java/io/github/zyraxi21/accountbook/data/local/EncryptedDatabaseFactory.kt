@@ -22,6 +22,7 @@ object EncryptedDatabaseFactory {
         Logger.setTarget(NoopTarget())
         val bookDatabase = Room.databaseBuilder(context.applicationContext, BookDatabase::class.java, database.absolutePath)
             .openHelperFactory(SupportOpenHelperFactory(password))
+            .addMigrations(MIGRATION_1_2)
             .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
             .build()
         try {

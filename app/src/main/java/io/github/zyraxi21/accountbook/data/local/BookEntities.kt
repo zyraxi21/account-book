@@ -58,7 +58,12 @@ data class IncomeEntity(
 data class SmsImportReceiptEntity(@PrimaryKey val fingerprint: String)
 
 @Entity(tableName = "app_settings")
-data class AppSettingsEntity(@PrimaryKey val id: Int = 1, val smsAutoImportEnabled: Boolean = false)
+data class AppSettingsEntity(
+    @PrimaryKey val id: Int = 1,
+    val smsAutoImportEnabled: Boolean = false,
+    /** 最近一次成功导出的时间戳，仅用于界面提示。 */
+    val lastExportAtMillis: Long? = null,
+)
 
 @Entity(
     tableName = "remembered_channels",

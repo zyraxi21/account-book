@@ -48,4 +48,10 @@ interface BookDao {
     @Query("DELETE FROM incomes WHERE id = :id") suspend fun deleteIncome(id: String)
     @Query("DELETE FROM remembered_channels") suspend fun clearRememberedChannels()
     @Query("DELETE FROM remembered_channels WHERE channelId = :id") suspend fun forgetChannel(id: String)
+
+    // 以下用于导入时整表重组：只在导入的单个事务内调用。
+    @Query("DELETE FROM channel_balances") suspend fun deleteAllBalances()
+    @Query("DELETE FROM monthly_assets") suspend fun deleteAllSnapshots()
+    @Query("DELETE FROM channels") suspend fun deleteAllChannels()
+    @Query("DELETE FROM incomes") suspend fun deleteAllIncomes()
 }

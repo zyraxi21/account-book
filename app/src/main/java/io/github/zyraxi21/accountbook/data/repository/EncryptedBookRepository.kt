@@ -43,6 +43,11 @@ class EncryptedBookRepository(
         }
     }
 
+    /** 已经有账本时才允许初始化渠道；空账本交给导入流程直接建表，避免凭空多出默认渠道。 */
+    private suspend fun initializeIfNeeded() {
+        if (database.bookDao().channels().isEmpty()) initialize()
+    }
+
     private suspend fun <T> write(block: suspend (BookDao) -> T): T = withContext(dispatcher) {
         try {
             initialize()
@@ -111,7 +116,105 @@ class EncryptedBookRepository(
         dao.forgetChannel(id)
     }
 
-    override suspend fun setSmsAutoImport(enabled: Boolean) = write { it.saveSettings(AppSettingsEntity(smsAutoImportEnabled = enabled)) }
+    override suspend fun setSmsAutoImport(enabled: Boolean) = write { dao ->
+        val current = dao.settings() ?: AppSettingsEntity()
+        if (current.smsAutoImportEnabled == enabled) Unit else dao.saveSettings(current.copy(smsAutoImportEnabled = enabled))
+    }
+
+    override suspend fun recordExport(exportedAt: Instant) = write { dao ->
+        val current = dao.settings() ?: AppSettingsEntity()
+        dao.saveSettings(current.copy(lastExportAtMillis = exportedAt.toEpochMilli()))
+    }
+
+    /**
+     * 整本导入。解码已在数据层之外完成，这里只做一次事务内的整表重组，
+     * 任一条记录违反约束都会让整个事务回滚，不会留下半份数据。
+     *
+     * 覆盖模式保留原有的渠道记忆与短信自动登记开关：
+     * 它们描述的是"这台设备怎么用"，而不是被导入的账务内容。
+     */
+    override suspend fun importBook(data: BookData): ImportMode = write { dao ->
+        initializeIfNeeded()
+        val existing = readBook(dao)
+        val mode = if (existing.channels.isEmpty() && existing.snapshots.isEmpty() && existing.incomes.isEmpty()) {
+            ImportMode.REPLACE
+        } else {
+            ImportMode.MERGE
+        }
+        val snapshot = when (mode) {
+            ImportMode.MERGE -> merge(existing, data)
+            ImportMode.REPLACE -> replace(data)
+        }
+        persist(dao, snapshot, mode)
+        mode
+    }
+
+    private fun merge(existing: BookData, incoming: BookData): BookData {
+        val channels = existing.channels.associateBy { it.id }.toMutableMap()
+        val order = existing.channels.map { it.id }.toMutableList()
+        val names = channels.values.map { it.name.lowercase() }.toMutableSet()
+        incoming.channels.forEach { channel ->
+            val current = channels[channel.id]
+            if (current != null) {
+                // 同一标识以现有记录为准，避免导入把仍在使用的渠道改名或隐藏。
+                if (!current.active && channel.active) channels[channel.id] = current.copy(active = true)
+                return@forEach
+            }
+            val name = channel.name.trim()
+            // 名称冲突时保留原有渠道，新记录自动改名而不是覆盖。
+            var candidate = name
+            var suffix = 2
+            while (candidate.lowercase() in names) { candidate = "$name ($suffix)"; suffix++ }
+            if (candidate.length > 40) candidate = "$name ($suffix)".takeLast(40)
+            names.add(candidate.lowercase())
+            channels[channel.id] = channel.copy(name = candidate, active = channel.active)
+            order.add(channel.id)
+        }
+        val snapshots = existing.snapshots.associateBy { it.month }.toMutableMap()
+        // 现有资产表优先，导入文件不覆盖本机已经登记的月份。
+        incoming.snapshots.forEach { snapshots.putIfAbsent(it.month, it) }
+        val incomes = existing.incomes.associateBy { it.id }.toMutableMap()
+        incoming.incomes.forEach { incomes.putIfAbsent(it.id, it) }
+        return BookData(
+            channels = order.mapNotNull(channels::get),
+            snapshots = snapshots.values.toList(),
+            incomes = incomes.values.toList(),
+            settings = existing.settings,
+        )
+    }
+
+    private fun replace(incoming: BookData) = incoming.copy(settings = BookSettings())
+
+    private suspend fun persist(dao: BookDao, data: BookData, mode: ImportMode) {
+        if (mode == ImportMode.REPLACE) {
+            dao.clearRememberedChannels()
+            dao.deleteAllBalances()
+            dao.deleteAllSnapshots()
+            dao.deleteAllChannels()
+            dao.deleteAllIncomes()
+        }
+        val channels = data.channels.associateBy { it.id }
+        if (channels.size != data.channels.size) throw BookException(BookError.IMPORT_INVALID_FIELD)
+        // 未出现在导入文件里的余额必须能在现有渠道中找到，否则外键约束会直接失败。
+        val known = if (mode == ImportMode.REPLACE) channels.keys else dao.channels().map { it.id }.toSet()
+        val balances = data.snapshots.sortedBy { it.month }.flatMap { snapshot ->
+            val month = snapshot.month.toString()
+            if (dao.snapshot(month) != null) throw BookException(BookError.IMPORT_DUPLICATE_MONTH)
+            snapshot.balances.mapIndexed { index, balance ->
+                if (balance.channelId !in known) throw BookException(BookError.CHANNEL_UNAVAILABLE)
+                ChannelBalanceEntity(month, balance.channelId, balance.channelName, balance.amount.fen, index)
+            }
+        }
+        if (channels.isNotEmpty()) dao.insertChannels(data.channels.map { ChannelEntity(it.id, it.name, it.active, it.position) })
+        data.snapshots.forEach { dao.saveSnapshot(MonthlyAssetEntity(it.month.toString(), it.registeredAt.toEpochMilli(), it.liability.fen)) }
+        if (balances.isNotEmpty()) dao.insertBalances(balances)
+        data.incomes.forEach { dao.saveIncome(IncomeEntity(it.id, it.title, it.amount.fen, it.receivedAt.toEpochMilli(), it.source.name)) }
+        if (mode == ImportMode.REPLACE) {
+            // 渠道记忆随渠道一起重组，只保留仍启用的部分。
+            val remembered = data.channels.filter { it.active }.sortedBy { it.position }
+            if (remembered.isNotEmpty()) dao.insertRememberedChannels(remembered.map { RememberedChannelEntity(it.id, it.position) })
+        }
+    }
 
     override suspend fun importSms(parsed: ParsedIcbcIncome, requireAutoEnabled: Boolean): Boolean = write { dao ->
         if (requireAutoEnabled && dao.settings()?.smsAutoImportEnabled != true) return@write false
@@ -144,7 +247,8 @@ class EncryptedBookRepository(
                 Money(record.asset.liabilityFen))
         },
         incomes = dao.incomes().map { Income(it.id, it.title, Money(it.amountFen), Instant.ofEpochMilli(it.receivedAtMillis), IncomeSource.valueOf(it.source)) },
-        settings = BookSettings(dao.settings()?.smsAutoImportEnabled == true, dao.rememberedChannels().map { it.channelId }),
+        settings = BookSettings(dao.settings()?.smsAutoImportEnabled == true, dao.rememberedChannels().map { it.channelId },
+            dao.settings()?.lastExportAtMillis?.let(Instant::ofEpochMilli)),
     )
 
     private fun Income.toEntity() = IncomeEntity(id, title, amount.fen, receivedAt.toEpochMilli(), source.name)
