@@ -93,12 +93,13 @@ class PrivacyUiTest {
         compose.onNode(hasSetTextAction() and hasText("编辑中的隐私项目")).assertExists()
     }
 
-    @Test fun registeringAssetsWithSelectedFluentCheckboxesDoesNotCrashAndRestoresDraft() {
+    @Test fun registeringAssetsWithCardsDoesNotCrashAndRestoresDraft() {
         launchBook(hasSnapshot = false)
         compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
         compose.onNodeWithText(context.getString(R.string.register_assets)).performClick()
         compose.onNodeWithText(context.getString(R.string.save_assets)).assertExists()
-        compose.runOnIdle { assertTrue(vm.assetDraft.value!!.balances.single().selected); vm.updateBalance("bank", amount = "10.25") }
+        compose.onAllNodes(isToggleable()).assertCountEquals(0)
+        compose.runOnIdle { vm.updateBalance("bank", amount = "10.25") }
         compose.onNode(hasSetTextAction() and hasText("10.25")).assertExists()
         compose.onNodeWithContentDescription(context.getString(R.string.select_date)).performClick()
         closeNativeDatePicker()
@@ -114,7 +115,7 @@ class PrivacyUiTest {
 
     @Test fun swipesNavigateMonthsAndCurrentMonthCannotAdvance() {
         launchBook()
-        compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsEnabled().performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsNotEnabled()
         compose.runOnIdle { assertEquals(vm.thisMonth, vm.selectedMonth.value) }
         compose.onAllNodesWithContentDescription(context.getString(R.string.current_month)).assertCountEquals(0)
         val label = context.getString(R.string.month_format, vm.thisMonth.year, vm.thisMonth.monthValue)
@@ -133,7 +134,7 @@ class PrivacyUiTest {
             assertEquals("月份栏应始终保持原位", originalX, draggedX, 0.1f)
             assertTrue("账单应在手指未松开时跟随拖动", statement.fetchSemanticsNode().positionInRoot.x > originalBodyX + 20f)
             compose.onNodeWithContentDescription(context.getString(R.string.previous_month)).assertIsEnabled()
-            compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsEnabled()
+            compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsNotEnabled()
             compose.onNodeWithTag("register_assets_${vm.thisMonth}").assertIsEnabled()
             assertEquals("拖动结束后才同步停靠月份", vm.thisMonth, vm.selectedMonth.value)
             compose.onNodeWithTag("month_statement_pager").performTouchInput { advanceEventTime(300); up() }
@@ -185,6 +186,7 @@ class PrivacyUiTest {
             compose.mainClock.advanceTimeBy(48)
             previous.assertIsEnabled().performClick()
             previous.performClick()
+            compose.mainClock.advanceTimeBy(128)
             compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsEnabled().performClick()
         } finally { compose.mainClock.autoAdvance = true }
         compose.waitForIdle()
@@ -247,6 +249,12 @@ class PrivacyUiTest {
         capturePreview("settings-dark")
         compose.onAllNodesWithText(context.getString(R.string.encrypted_local_title)).assertCountEquals(0)
         scrollToText(R.string.about_title).performClick()
+        compose.onNodeWithText(context.getString(R.string.update_check)).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.about_features_title)).assertExists()
+        compose.runOnIdle { darkTheme = false }
+        capturePreview("about-light")
+        compose.runOnIdle { darkTheme = true }
+        capturePreview("about-dark")
         compose.onNodeWithText(context.getString(R.string.encrypted_local_title)).assertExists()
         compose.onNodeWithTag(BOTTOMSHEET_HANDLE_TAG).assertExists()
         // 正文拖动走嵌套滚动，与把手的关闭回调不同；两种方式都必须允许再次打开。
@@ -346,55 +354,103 @@ class PrivacyUiTest {
         compose.runOnIdle { assertEquals(vm.thisMonth, vm.selectedMonth.value) }
     }
 
-    @Test fun draggingTheChannelHandleReordersChannels() {
-        launchBook(hasSnapshot = false, channels = listOf(
-            Channel("a", "渠道甲", true, 0), Channel("b", "渠道乙", true, 1), Channel("c", "渠道丙", true, 2)))
-        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
-        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+    @Test fun draggingAssetCardsKeepsOrderWhenPrivacyHidesAndRestoresTheDraft() {
+        launchAssetCards()
         dragChannel("a")
-        val savedOrder = vm.state.value.data.activeChannels.map { it.id }
+        val savedOrder = vm.assetDraft.value!!.balances.map { it.channelId }
         compose.runOnIdle {
             assertEquals(setOf("a", "b", "c"), savedOrder.toSet())
             assertTrue(savedOrder.indexOf("a") > 0)
         }
         assertChannelOrder(savedOrder)
-        compose.onNodeWithText(context.getString(R.string.tab_assets)).performClick()
-        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("channel_handle_a"))
-        compose.runOnIdle { assertEquals(savedOrder, vm.state.value.data.activeChannels.map { it.id }) }
+        compose.runOnIdle { vm.hidePrivateData() }
+        compose.onAllNodesWithTag("channel_handle_a").assertCountEquals(0)
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithTag("channel_handle_a").performScrollTo()
+        compose.runOnIdle { assertEquals(savedOrder, vm.assetDraft.value!!.balances.map { it.channelId }) }
         assertChannelOrder(savedOrder)
     }
 
-    @Test fun hiddenChannelListDoesNotApplyAnUnsavedOrder() {
-        launchBook(hasSnapshot = false, channels = listOf(
-            Channel("a", "渠道甲", true, 0), Channel("b", "渠道乙", true, 1), Channel("c", "渠道丙", true, 2)))
+    @Test fun channelIconActionsRenameAndDeleteWithoutLosingTheAmountDraft() {
+        launchAssetCards()
+        compose.onAllNodes(isToggleable()).assertCountEquals(0)
+        compose.runOnIdle { vm.updateBalance("a", "10.25") }
+        compose.onNodeWithTag("channel_edit_a").performClick()
+        compose.onNode(hasSetTextAction() and hasText("渠道甲")).performTextReplacement("工商银行")
+        compose.onNodeWithText(context.getString(R.string.save_channel)).performClick()
+        compose.onNodeWithText("工商银行").assertExists()
+        compose.onNode(hasSetTextAction() and hasText("10.25")).assertExists()
+        capturePreview("asset-cards-light", isDialog())
+        compose.runOnIdle { darkTheme = true }
+        capturePreview("asset-cards-dark", isDialog())
+        compose.onNodeWithTag("channel_delete_c").performScrollTo().performClick()
+        compose.onNodeWithText(context.getString(R.string.cancel)).performClick()
+        compose.onNodeWithTag("channel_delete_c").performScrollTo().performClick()
+        compose.onNodeWithText(context.getString(R.string.delete)).performClick()
+        compose.runOnIdle { assertEquals(listOf("a", "b"), vm.assetDraft.value!!.balances.map { it.channelId }) }
+        compose.onNode(hasSetTextAction() and hasText("10.25")).assertExists()
+        compose.onNodeWithText(context.getString(R.string.cancel)).performClick()
         compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("channel_handle_a"))
-        compose.onNodeWithTag("channel_handle_a").assertIsNotEnabled()
-        dragChannel("a")
-        assertChannelOrder(listOf("a", "b", "c"))
-        compose.runOnIdle { assertEquals(listOf("a", "b", "c"), vm.state.value.data.activeChannels.map { it.id }) }
-        compose.onNodeWithText(context.getString(R.string.tab_assets)).performClick()
-        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("channel_handle_a"))
-        assertChannelOrder(listOf("a", "b", "c"))
+        compose.onAllNodesWithTag("channel_handle_a").assertCountEquals(0)
     }
 
-    @Test fun cancellingAnotherDragKeepsTheLastSavedChannelOrder() {
-        launchBook(hasSnapshot = false, channels = listOf(
-            Channel("a", "渠道甲", true, 0), Channel("b", "渠道乙", true, 1), Channel("c", "渠道丙", true, 2)))
-        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
-        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+    @Test fun cancellingAnotherDragKeepsTheAcceptedAssetCardOrder() {
+        launchAssetCards()
         dragChannel("a")
-        val savedOrder = vm.state.value.data.activeChannels.map { it.id }
+        val savedOrder = vm.assetDraft.value!!.balances.map { it.channelId }
         assertTrue(savedOrder.indexOf("a") > 0)
         dragChannel(savedOrder.first(), cancel = true)
-        compose.runOnIdle { assertEquals(savedOrder, vm.state.value.data.activeChannels.map { it.id }) }
+        compose.runOnIdle { assertEquals(savedOrder, vm.assetDraft.value!!.balances.map { it.channelId }) }
         assertChannelOrder(savedOrder)
+    }
+
+    @Test fun neighbouringCardsAnimateIntoTheirNewPositions() {
+        launchAssetCards()
+        val initialA = compose.onNodeWithTag("channel_card_a").fetchSemanticsNode().positionInRoot.y
+        val initialB = compose.onNodeWithTag("channel_card_b").fetchSemanticsNode().positionInRoot.y
+        val move = compose.onNodeWithTag("channel_row_a").fetchSemanticsNode().config[SemanticsActions.CustomActions]
+            .first { it.label == context.getString(R.string.move_down) }
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnIdle { assertTrue(move.action()) }
+            compose.mainClock.advanceTimeBy(80)
+            val intermediateB = compose.onNodeWithTag("channel_card_b").fetchSemanticsNode().positionInRoot.y
+            assertTrue("相邻卡片应平滑让位，不能直接跳到终点", intermediateB > initialA + 1f && intermediateB < initialB - 1f)
+            compose.mainClock.advanceTimeBy(1_500)
+            val finalB = compose.onNodeWithTag("channel_card_b").fetchSemanticsNode().positionInRoot.y
+            assertEquals(initialA, finalB, 1f)
+        } finally { compose.mainClock.autoAdvance = true }
+    }
+
+    @Test fun cumulativeIncomeUsesTheDisplayedMonthAndCurrentMonthCannotAdvance() {
+        val month = YearMonth.from(now.atZone(BOOK_ZONE))
+        launchBook(hasSnapshot = false, incomes = listOf(
+            Income("previous", "历史收入", Money(10000), month.minusMonths(1).atDay(15).atStartOfDay(BOOK_ZONE).toInstant()),
+            Income("current", "本月收入", Money(20000), now),
+            Income("future", "未来收入", Money(40000), month.plusMonths(1).atDay(1).atStartOfDay(BOOK_ZONE).toInstant()),
+        ))
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsNotEnabled()
+        compose.onNodeWithText(context.getString(R.string.tab_income)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsNotEnabled()
+        compose.onNodeWithTag("cumulative_income_$month").assertTextEquals(context.getString(R.string.currency_value, Money(30000).formatted()))
+        compose.onNodeWithContentDescription(context.getString(R.string.previous_month)).performClick()
+        compose.onNodeWithTag("cumulative_income_${month.minusMonths(1)}").assertTextEquals(context.getString(R.string.currency_value, Money(10000).formatted()))
+        compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsEnabled()
+        compose.onNodeWithTag("current_month_button").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsNotEnabled()
+        compose.onAllNodesWithTag("current_month_button").assertCountEquals(0)
+    }
+
+    private fun launchAssetCards() {
+        launchBook(hasSnapshot = false, channels = listOf(
+            Channel("a", "渠道甲", true, 0), Channel("b", "渠道乙", true, 1), Channel("c", "渠道丙", true, 2)))
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithText(context.getString(R.string.register_assets)).performClick()
     }
 
     private fun dragChannel(id: String, cancel: Boolean = false) {
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("channel_handle_$id"))
+        compose.onNodeWithTag("channel_handle_$id").performScrollTo()
         compose.onNodeWithTag("channel_handle_$id").performTouchInput {
             down(center)
             // 长按检测需要超过系统长按时长的静止时间才会开始拖动。
@@ -464,11 +520,11 @@ class PrivacyUiTest {
         return compose.onNode(matcher).performScrollTo()
     }
 
-    private fun capturePreview(name: String) {
+    private fun capturePreview(name: String, matcher: SemanticsMatcher = isRoot()) {
         // 仅导出测试替身界面，截图中不包含手机上的实际账务。
         val file = File(context.getExternalFilesDir(null), "ui-verification/$name.png")
         file.parentFile!!.mkdirs()
-        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        val bitmap = compose.onNode(matcher).captureToImage().asAndroidBitmap()
         file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
     }
 

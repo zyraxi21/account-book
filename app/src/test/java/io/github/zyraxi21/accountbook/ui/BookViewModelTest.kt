@@ -56,8 +56,8 @@ class BookViewModelTest {
 
     @Test fun restoresChannelOrderWithoutCopyingOldAmounts() {
         vm.togglePrivacy(); vm.openAssets(vm.thisMonth)
-        assertEquals(listOf("alipay", "bank"), vm.assetDraft.value!!.balances.map { it.channelId })
-        assertTrue(vm.assetDraft.value!!.balances.all { it.selected && it.amount.isEmpty() })
+        assertEquals(listOf("bank", "alipay"), vm.assetDraft.value!!.balances.map { it.channelId })
+        assertTrue(vm.assetDraft.value!!.balances.all { it.amount.isEmpty() })
     }
 
     @Test fun hidingRetainsDraftInMemoryAndPreventsSubmission() {
@@ -229,14 +229,14 @@ class BookViewModelTest {
         assertFalse(restarted.privacyHidden.value)
     }
 
-    @Test fun newChannelFromAssetEditorIsSelectedImmediatelyAndClearsInput() {
+    @Test fun newChannelFromAssetEditorAddsAnEmptyCardAndClearsInput() {
         vm.togglePrivacy(); vm.openAssets(vm.thisMonth)
         vm.updateNewChannelName("  招商银行  ")
         vm.addChannelToDraft()
         val draft = vm.assetDraft.value!!
         val added = draft.balances.last()
         assertEquals("招商银行", added.name)
-        assertTrue(added.selected)
+        assertTrue(added.active)
         assertEquals("", draft.newChannelName)
         assertEquals("招商银行", vm.state.value.data.activeChannels.last().name)
     }
@@ -255,10 +255,59 @@ class BookViewModelTest {
         vm.togglePrivacy()
         vm.commitChannelOrder(listOf("alipay", "bank"))
         assertEquals(listOf("alipay", "bank"), vm.state.value.data.activeChannels.map { it.id })
-        // 登记时的默认勾选跟随新的渠道顺序。
+        // 登记卡片按当前渠道顺序排列。
         vm.openAssets(vm.thisMonth)
         assertEquals(listOf("alipay", "bank"), vm.assetDraft.value!!.balances.map { it.channelId })
-        assertEquals(2, vm.assetDraft.value!!.balances.count { it.selected })
+        assertEquals(2, vm.assetDraft.value!!.balances.size)
+    }
+
+    @Test fun assetCardOrderIsADraftUntilSaveAndEmptyAmountsBecomeZero() {
+        var saved: MonthlyAssetSnapshot? = null
+        val repository = object : BookRepository by ReadOnlyBookRepository(BookData(
+            channels = listOf(Channel("bank", "银行", true, 0), Channel("alipay", "支付宝", true, 1)),
+            settings = BookSettings(hideOnStartup = false))) {
+            override suspend fun saveAsset(snapshot: MonthlyAssetSnapshot, originalMonth: YearMonth?) { saved = snapshot }
+        }
+        val other = BookViewModel(repository, clock = clock)
+        store.put("card-order", other)
+        other.openAssets(other.thisMonth)
+        other.updateBalance("bank", "10.25")
+        other.reorderAssetChannels(listOf("alipay", "bank"))
+        assertEquals(listOf("bank", "alipay"), other.state.value.data.activeChannels.map { it.id })
+        assertEquals("10.25", other.assetDraft.value!!.balances.last().amount)
+        other.saveAsset()
+        assertEquals(listOf("alipay", "bank"), saved!!.balances.map { it.channelId })
+        assertEquals(Money.ZERO, saved!!.balances.first().amount)
+        assertEquals(Money.parse("10.25"), saved!!.total)
+    }
+
+    @Test fun renamingAndDeletingChannelsRefreshesTheAssetCardsWithoutLosingAmounts() {
+        vm.togglePrivacy(); vm.openAssets(vm.thisMonth)
+        vm.updateBalance("bank", "10.25")
+        vm.openChannel(vm.state.value.data.channels.first { it.id == "bank" })
+        vm.updateChannelName("工商银行"); vm.saveChannel()
+        assertEquals("工商银行", vm.assetDraft.value!!.balances.first().name)
+        assertEquals("10.25", vm.assetDraft.value!!.balances.first().amount)
+        vm.deleteChannel("alipay")
+        assertEquals(listOf("bank"), vm.assetDraft.value!!.balances.map { it.channelId })
+    }
+
+    @Test fun historicalEditorUsesCurrentOrderAndRetainsDeletedBalancesAndHistoricalNames() {
+        val month = YearMonth.of(2026, 9)
+        val original = MonthlyAssetSnapshot(Instant.parse("2026-09-30T04:35:00Z"), listOf(
+            ChannelBalance("bank", "旧银行名称", Money(1250)), ChannelBalance("alipay", "支付宝", Money(2500))), Money.ZERO)
+        val repository = ReadOnlyBookRepository(BookData(channels = listOf(
+            Channel("alipay", "支付宝", true, 0), Channel("bank", "新银行名称", true, 1)), snapshots = listOf(original)))
+        val other = BookViewModel(repository, clock = clock)
+        store.put("historical-cards", other)
+        other.togglePrivacy(); other.openAssets(month)
+        assertEquals(listOf("alipay", "bank"), other.assetDraft.value!!.balances.map { it.channelId })
+        assertEquals("旧银行名称", other.assetDraft.value!!.balances.last().name)
+        other.deleteChannel("bank")
+        val retained = other.assetDraft.value!!.balances.last()
+        assertFalse(retained.active)
+        assertEquals("12.50", retained.amount)
+        assertEquals(original, repository.data.value.snapshots.single())
     }
 
     @Test fun incomeIsSlicedByTheSelectedMonth() {

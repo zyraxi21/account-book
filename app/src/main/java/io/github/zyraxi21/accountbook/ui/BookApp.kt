@@ -160,9 +160,6 @@ fun BookApp(vm: BookViewModel) {
                             },
                             onPermissionSettings = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                                 Uri.fromParts("package", context.packageName, null))) },
-                            onAddChannel = { vm.openChannel() }, onRename = { vm.openChannel(it) }, onDelete = { deleteChannel = it },
-                            // 列表顺序即登记顺序；默认勾选项由上一次成功登记决定，设置页不再单独维护。
-                            onReorder = vm::commitChannelOrder,
                             onExportJson = { vm.startExport(ExportFormat.JSON) },
                             onExportCsv = { vm.startExport(ExportFormat.CSV) },
                             onImport = vm::requestImport, onHideOnStartup = vm::setHideOnStartup,
@@ -174,7 +171,11 @@ fun BookApp(vm: BookViewModel) {
             BookBottomBar(selectedIndex = tab, onSelect = { aboutVisible = false; tab = it })
         }
         if (!hidden && state.storageError == null) {
-            assetDraft?.let { AssetEditor(it, vm, busy) }
+            if (channelDraft == null && deleteChannel == null) assetDraft?.let { draft ->
+                AssetEditor(draft, vm, busy,
+                    onRename = { id -> state.data.channels.firstOrNull { it.id == id }?.let(vm::openChannel) },
+                    onDelete = { id -> deleteChannel = state.data.channels.firstOrNull { it.id == id } })
+            }
             incomeDraft?.let { IncomeEditor(it, vm, busy, editingExisting = state.data.incomes.any { income -> income.id == it.id }) }
             channelDraft?.let { ChannelEditor(it, vm, busy) }
             smsText?.let { SmsInputEditor(it, vm, busy) }

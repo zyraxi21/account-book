@@ -41,7 +41,7 @@ data class Income(
 )
 data class BookSettings(
     val smsAutoImportEnabled: Boolean = false,
-    /** 下次登记的默认勾选渠道，顺序即登记顺序；仅由设置页和上一次成功登记写入。 */
+    /** 上一次成功登记的渠道顺序快照，兼容已有备份；当前登记界面使用启用渠道的排序。 */
     val defaultChannelIds: List<String> = emptyList(),
     /** 最近一次成功导出的时间，仅用于在设置页说明数据去向。 */
     val exportedAt: Instant? = null,
@@ -65,6 +65,12 @@ data class BookData(
 
     fun incomeIn(month: YearMonth): Money = Money.sum(incomesIn(month).map { it.amount })
 
+    /** 累计截至所选月份月底，上海时间下月第一天的收入不计入。 */
+    fun cumulativeIncomeThrough(month: YearMonth): Money {
+        val endExclusive = month.plusMonths(1).atDay(1).atStartOfDay(BOOK_ZONE).toInstant()
+        return Money.sum(incomes.filter { it.receivedAt < endExclusive }.map { it.amount })
+    }
+
     fun summary(month: YearMonth): MonthlySummary {
         val current = snapshot(month)
         val previous = snapshot(month.minusMonths(1))
@@ -83,8 +89,5 @@ data class MonthlySummary(
     val estimatedExpense: Money?,
 )
 
-/** 只有成功提交的渠道选择才作为下次登记的模板。 */
-fun BookData.nextRegistrationChannels(): List<Channel> {
-    val active = activeChannels.associateBy { it.id }
-    return settings.defaultChannelIds.mapNotNull(active::get)
-}
+/** 登记使用所有启用渠道及当前排序，旧版勾选记忆不再覆盖设置中的顺序。 */
+fun BookData.nextRegistrationChannels(): List<Channel> = activeChannels.sortedBy { it.position }

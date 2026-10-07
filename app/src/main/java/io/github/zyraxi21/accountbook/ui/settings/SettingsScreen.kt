@@ -23,7 +23,6 @@ import com.microsoft.fluentui.tokenized.controls.TextField
 import com.microsoft.fluentui.tokenized.controls.ToggleSwitch
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.BookData
-import io.github.zyraxi21.accountbook.domain.Channel
 import io.github.zyraxi21.accountbook.ui.BookViewModel
 import io.github.zyraxi21.accountbook.ui.ChannelDraft
 import io.github.zyraxi21.accountbook.ui.components.*
@@ -32,9 +31,7 @@ import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 @Composable
 fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission: Boolean, transferEnabled: Boolean,
                    transferProgress: Int?,
-                   onSmsChange: (Boolean) -> Unit, onPermissionSettings: () -> Unit, onAddChannel: () -> Unit,
-                   onRename: (Channel) -> Unit, onDelete: (Channel) -> Unit,
-                   onReorder: (List<String>) -> Unit,
+                   onSmsChange: (Boolean) -> Unit, onPermissionSettings: () -> Unit,
                    onExportJson: () -> Unit, onExportCsv: () -> Unit, onImport: () -> Unit,
                    onHideOnStartup: (Boolean) -> Unit, onAllowScreenshots: (Boolean) -> Unit, onAbout: () -> Unit) {
     val palette = LocalBookPalette.current
@@ -49,14 +46,6 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
                 else -> R.string.sms_disabled
             }), size = 13.sp, color = palette.brand)
             if (!smsPermission) Button(onClick = onPermissionSettings, text = stringResource(R.string.open_system_settings), style = ButtonStyle.OutlinedButton)
-        } }
-        item { LedgerCard {
-            SectionHeading(stringResource(R.string.channel_management), stringResource(R.string.channel_management_hint))
-            if (data.activeChannels.isEmpty()) BookText(stringResource(R.string.channel_none), size = 14.sp)
-            ChannelList(data.activeChannels, hidden, busy,
-                onReorder = onReorder, onRename = onRename, onDelete = onDelete)
-            Button(onClick = onAddChannel, text = stringResource(R.string.add_channel), style = ButtonStyle.OutlinedButton, enabled = !busy,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
         } }
         item { LedgerCard {
             SettingToggle(stringResource(R.string.default_privacy_title), stringResource(R.string.default_privacy_hint),

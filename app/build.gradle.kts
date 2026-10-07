@@ -86,6 +86,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.compose.animation)
     // 提供系统动态取色、涟漪与 Snackbar，应用控件与主题使用 Fluent。
     implementation(libs.androidx.compose.material3)
     // Fluent 复选框等控件会调用 Compose Material 图标，需显式提供运行时依赖。

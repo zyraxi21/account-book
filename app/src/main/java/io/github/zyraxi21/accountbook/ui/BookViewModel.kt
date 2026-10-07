@@ -33,7 +33,7 @@ import java.util.UUID
 private const val POLL_INTERVAL_MS = 700L
 
 data class BookUiState(val loading: Boolean = true, val data: BookData = BookData(), val storageError: BookError? = null)
-data class BalanceDraft(val channelId: String, val name: String, val selected: Boolean, val amount: String = "")
+data class BalanceDraft(val channelId: String, val name: String, val amount: String = "", val active: Boolean = true)
 data class AssetDraft(val originalMonth: YearMonth?, val registeredAt: Instant, val balances: List<BalanceDraft>, val liability: String = "",
                       /** 弹窗内新增渠道的输入框，同样只由 ViewModel 持有，隐藏后恢复不丢。 */
                       val newChannelName: String = "")
@@ -136,6 +136,7 @@ class BookViewModel(
                         privacyInitialized = true
                     }
                     _state.value = BookUiState(loading = false, data = it)
+                    refreshDraftChannels(it)
                     updatePrivacyVisibility()
                 }
             } catch (error: CancellationException) { throw error
@@ -197,28 +198,47 @@ class BookViewModel(
         if (!allowEdit()) return
         val data = _state.value.data
         val snapshot = data.snapshot(month)
-        val selected = snapshot?.balances?.map { it.channelId } ?: data.nextRegistrationChannels().map { it.id }
         val existing = snapshot?.balances?.associateBy { it.channelId }.orEmpty()
-        val ids = (selected + data.activeChannels.map { it.id }).distinct()
+        val ids = (data.nextRegistrationChannels().map { it.id } + existing.keys).distinct()
         val channels = data.channels.associateBy { it.id }
         val time = snapshot?.registeredAt ?: if (month == thisMonth) clock.instant()
             else month.atEndOfMonth().atTime(23, 59).atZone(BOOK_ZONE).toInstant()
         _assetDraft.value = AssetDraft(snapshot?.month, time, ids.mapNotNull { id -> channels[id]?.let { channel ->
-            BalanceDraft(id, existing[id]?.channelName ?: channel.name, id in selected, existing[id]?.amount?.inputText().orEmpty())
+            BalanceDraft(id, existing[id]?.channelName ?: channel.name, existing[id]?.amount?.inputText().orEmpty(), channel.active)
         } }, snapshot?.liability?.inputText().orEmpty())
     }
 
     fun updateAssetDate(time: Instant) { _assetDraft.value = _assetDraft.value?.copy(registeredAt = time) }
-    fun updateBalance(id: String, amount: String? = null, selected: Boolean? = null) {
+    fun updateBalance(id: String, amount: String) {
         _assetDraft.value = _assetDraft.value?.let { draft -> draft.copy(balances = draft.balances.map {
-            if (it.channelId == id) it.copy(amount = amount ?: it.amount, selected = selected ?: it.selected) else it
+            if (it.channelId == id) it.copy(amount = amount) else it
         }) }
+    }
+
+    /** 对话框排序属于草稿，保存资产时才同步到渠道排序。 */
+    fun reorderAssetChannels(ids: List<String>) {
+        if (!allowEdit()) return
+        val draft = _assetDraft.value ?: return
+        val balances = draft.balances.associateBy { it.channelId }
+        _assetDraft.value = draft.copy(balances = ids.mapNotNull(balances::get))
+    }
+
+    /** 渠道改名、删除后刷新草稿，已保存的历史余额与名称继续保留。 */
+    private fun refreshDraftChannels(data: BookData) {
+        val draft = _assetDraft.value ?: return
+        val channels = data.channels.associateBy { it.id }
+        val historical = draft.originalMonth?.let(data::snapshot)?.balances?.associateBy { it.channelId }.orEmpty()
+        _assetDraft.value = draft.copy(balances = draft.balances.mapNotNull { balance ->
+            val channel = channels[balance.channelId] ?: return@mapNotNull null
+            if (!channel.active && balance.channelId !in historical) return@mapNotNull null
+            balance.copy(name = historical[balance.channelId]?.channelName ?: channel.name, active = channel.active)
+        })
     }
     fun updateLiability(value: String) { _assetDraft.value = _assetDraft.value?.copy(liability = value) }
     fun updateNewChannelName(name: String) { _assetDraft.value = _assetDraft.value?.copy(newChannelName = name.take(40)) }
 
     /**
-     * 登记时随手新增渠道：立即落库并勾选，不必先去设置页。
+     * 登记时随手新增渠道：立即落库并插入卡片，不必先去设置页。
      * 不走 perform，避免在还在编辑时弹出“已保存”；新行出现本身就是反馈。
      */
     fun addChannelToDraft() {
@@ -231,7 +251,7 @@ class BookViewModel(
                 val channel = repository.addChannel(name)
                 val current = _assetDraft.value ?: return@launch
                 _assetDraft.value = current.copy(
-                    balances = current.balances + BalanceDraft(channel.id, channel.name, selected = true),
+                    balances = current.balances + BalanceDraft(channel.id, channel.name),
                     newChannelName = "",
                 )
             } catch (error: CancellationException) { throw error
@@ -246,8 +266,8 @@ class BookViewModel(
         if (!allowEdit()) return
         val draft = _assetDraft.value ?: return
         perform {
-            val snapshot = MonthlyAssetSnapshot(atSaveTime(draft.registeredAt), draft.balances.filter { it.selected }.map {
-                ChannelBalance(it.channelId, it.name, Money.parse(it.amount))
+            val snapshot = MonthlyAssetSnapshot(atSaveTime(draft.registeredAt), draft.balances.map {
+                ChannelBalance(it.channelId, it.name, Money.parse(it.amount.ifBlank { "0" }))
             }, Money.parse(draft.liability.ifBlank { "0" }))
             repository.saveAsset(snapshot, draft.originalMonth)
             _selectedMonth.value = minOf(snapshot.month, thisMonth)

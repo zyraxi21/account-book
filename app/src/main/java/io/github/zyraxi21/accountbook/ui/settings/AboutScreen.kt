@@ -1,7 +1,9 @@
 package io.github.zyraxi21.accountbook.ui.settings
 
+import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.core.net.toUri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -81,10 +83,11 @@ fun AboutScreen(vm: BookViewModel, onDismiss: () -> Unit) {
         { scope.launch { sheetState.hide() }; Unit }
     }
     val updateState by vm.updateState.collectAsStateWithLifecycle()
-    val maxHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * 0.85f }
+    val sheetHeight = with(LocalDensity.current) { (LocalWindowInfo.current.containerSize.height.toDp() * 0.88f).coerceAtMost(760.dp) }
     // Fluent 以内容函数的标识缓存测量结果；保持引用稳定，避免动画帧反复重置高度。
-    val sheetContent: @Composable () -> Unit = remember(close, maxHeight, updateState) {
-        { AboutContent(close, updateState, vm, Modifier.heightIn(max = maxHeight)
+    val sheetContent: @Composable () -> Unit = remember(close, sheetHeight, updateState) {
+        // Fluent 把手占 4dp，上下各有 8dp 内边距；正文高度与可见停靠高度对应。
+        { AboutContent(close, updateState, vm, Modifier.height(sheetHeight - 20.dp)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))) }
     }
     val opened = stringResource(R.string.about_sheet_opened)
@@ -107,7 +110,7 @@ fun AboutScreen(vm: BookViewModel, onDismiss: () -> Unit) {
         // 使用固定停靠模式，避免 SDK 的 slideOver 分支循环修改测量高度。
         slideOver = false,
         expandable = false,
-        peekHeight = maxHeight.coerceAtMost(480.dp),
+        peekHeight = sheetHeight,
         scrimVisible = true,
         enableSwipeDismiss = true,
         talkbackAnnouncement = SheetAccessibilityAnnouncement(
@@ -124,6 +127,7 @@ fun AboutScreen(vm: BookViewModel, onDismiss: () -> Unit) {
 private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: BookViewModel,
                          modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    val repositoryUrl = stringResource(R.string.about_repository_url)
     val palette = LocalBookPalette.current
     // 版本号统一来自构建配置的 versionName，此处只负责读取展示。
     val version = remember(context) {
@@ -131,28 +135,39 @@ private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: Bo
             .getOrNull().orEmpty()
     }
     Column(modifier.fillMaxWidth().testTag(ABOUT_SHEET_TAG)) {
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            BookText(stringResource(R.string.about_title), Modifier.weight(1f), 22.sp, FontWeight.SemiBold)
+            Button(onClick = onClose, style = ButtonStyle.TextButton, icon = ImageVector.vectorResource(R.drawable.ic_close),
+                contentDescription = stringResource(R.string.close), modifier = Modifier.size(48.dp))
+        }
         Column(Modifier.fillMaxWidth().weight(1f)
-            .padding(start = 20.dp, end = 8.dp, bottom = 20.dp)
+            .padding(horizontal = 20.dp)
             .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BookText(stringResource(R.string.about_title), Modifier.weight(1f), 22.sp, FontWeight.SemiBold)
-                Button(onClick = onClose, style = ButtonStyle.TextButton, icon = ImageVector.vectorResource(R.drawable.ic_close),
-                    contentDescription = stringResource(R.string.close), modifier = Modifier.size(48.dp))
-            }
             SectionHeading(stringResource(R.string.app_name), stringResource(R.string.about_version, version))
+            BookText(stringResource(R.string.about_description), size = 14.sp, color = palette.secondary)
+            LedgerCard {
+                BookText(stringResource(R.string.about_features_title), weight = FontWeight.Medium)
+                BookText(stringResource(R.string.about_features), size = 14.sp, color = palette.secondary)
+                LedgerDivider()
+                BookText(stringResource(R.string.about_currency), size = 14.sp, color = palette.secondary)
+            }
             LedgerCard {
                 SectionHeading(stringResource(R.string.encrypted_local_title))
                 BookText(stringResource(R.string.encrypted_local_hint), size = 14.sp, color = palette.secondary)
                 LedgerDivider()
                 BookText(stringResource(R.string.about_export_hint), size = 14.sp, color = palette.secondary)
             }
-            UpdateSection(updateState, vm)
+            Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, repositoryUrl.toUri())) },
+                text = stringResource(R.string.about_source), style = ButtonStyle.TextButton,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
         }
-        // BottomSheet 铺满全屏并覆盖在主界面之上，主机位Snackbar 会被遮住；
-        // 与编辑弹窗一致，在弹层内部自带提示宿主，保证“当前已是最新版本”等提示可见。
-        BookSnackbarHost()
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LedgerDivider()
+            UpdateSection(updateState, vm)
+            BookSnackbarHost()
+        }
     }
     // 新版本弹窗与安装授权引导独立于弹层内容，避免被滚动区域裁剪。
     when (val state = updateState) {
@@ -270,11 +285,11 @@ private fun UpdateInstallDialog(vm: BookViewModel) {
     }
 }
 
-@Preview(name = "浅色 · 关于弹层", widthDp = 393, heightDp = 420, showBackground = true)
+@Preview(name = "浅色 · 关于弹层", widthDp = 393, heightDp = 780, showBackground = true)
 @Composable
 private fun LightAboutSheetPreview() { AboutSheetPreview(darkTheme = false) }
 
-@Preview(name = "深色 · 关于弹层", widthDp = 393, heightDp = 420, showBackground = true)
+@Preview(name = "深色 · 关于弹层", widthDp = 393, heightDp = 780, showBackground = true)
 @Composable
 private fun DarkAboutSheetPreview() { AboutSheetPreview(darkTheme = true) }
 
@@ -283,8 +298,8 @@ private fun AboutSheetPreview(darkTheme: Boolean) {
     AccountBookTheme(darkTheme = darkTheme, dynamicColor = false) {
         BottomSheet(modifier = Modifier.fillMaxSize(),
             sheetState = rememberBottomSheetState(BottomSheetValue.Shown),
-            sheetContent = { AboutContent(onClose = {}, UpdateUiState.Idle, previewViewModel(), Modifier.heightIn(max = 420.dp)) },
-            slideOver = false, expandable = false, peekHeight = 360.dp,
+            sheetContent = { AboutContent(onClose = {}, UpdateUiState.Idle, previewViewModel(), Modifier.height(680.dp)) },
+            slideOver = false, expandable = false, peekHeight = 700.dp,
             content = {})
     }
 }

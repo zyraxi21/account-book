@@ -1,6 +1,12 @@
 package io.github.zyraxi21.accountbook.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -31,6 +39,7 @@ import com.microsoft.fluentui.icons.actionbaricons.Arrowright
 import com.microsoft.fluentui.icons.searchbaricons.Arrowback
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
 import com.microsoft.fluentui.tokenized.controls.Button
+import com.microsoft.fluentui.tokenized.controls.FloatingActionButton
 import com.microsoft.fluentui.tokenized.menu.Dialog
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
@@ -53,11 +62,11 @@ internal fun monthAtPage(page: Int, currentMonth: YearMonth): YearMonth =
 
 /**
  * 资产页与收入页共用的月份导航：`◀` / 可点击的月份 / `▶`。
- * 点月份直接弹出选择器，不必逐月翻；`▶` 在本月时仍可点（点了不生效），保持既有交互。
+ * 点月份直接弹出选择器；本月停用下一月按钮。
  */
 @Composable
 fun MonthNavigation(month: YearMonth, onPrevious: () -> Unit, onNext: () -> Unit, onPickMonth: () -> Unit,
-                    modifier: Modifier = Modifier, titleTag: String = "month_title") {
+                    modifier: Modifier = Modifier, titleTag: String = "month_title", nextEnabled: Boolean = true) {
     val pickLabel = stringResource(R.string.select_month)
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = onPrevious, style = ButtonStyle.OutlinedButton, icon = SearchBarIcons.Arrowback,
@@ -74,8 +83,21 @@ fun MonthNavigation(month: YearMonth, onPrevious: () -> Unit, onNext: () -> Unit
                 Modifier.testTag(titleTag), 20.sp, FontWeight.Medium, align = TextAlign.Center)
         }
         Button(onClick = onNext, style = ButtonStyle.OutlinedButton, icon = ActionBarIcons.Arrowright,
+            enabled = nextEnabled,
             contentDescription = stringResource(R.string.next_month),
             modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp))
+    }
+}
+
+/** 返回本月的入口淡入并略微放大，消失时保留退场过渡。 */
+@Composable
+fun CurrentMonthButton(visible: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    AnimatedVisibility(visible, modifier,
+        enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = 0.85f),
+        exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.85f)) {
+        FloatingActionButton(onClick = onClick, text = stringResource(R.string.current_month),
+            icon = ImageVector.vectorResource(R.drawable.ic_current_month),
+            modifier = Modifier.testTag("current_month_button"))
     }
 }
 

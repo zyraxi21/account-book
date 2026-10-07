@@ -386,12 +386,12 @@ class EncryptedBookRepositoryTest {
         val historical = book().snapshots.single()
         repository.reorderChannels(listOf(alipay.id, bank.id))
         assertEquals(listOf(alipay.id, bank.id), book().activeChannels.take(2).map { it.id })
-        assertEquals(listOf(alipay.id, bank.id), book().nextRegistrationChannels().map { it.id })
+        assertEquals(listOf(alipay.id, bank.id), book().nextRegistrationChannels().take(2).map { it.id })
         // 回看旧月份时渠道顺序保持登记当时的样子。
         assertEquals(historical, book().snapshots.single())
         database.close(); reopen()
         assertEquals(listOf(alipay.id, bank.id), book().activeChannels.take(2).map { it.id })
-        assertEquals(listOf(alipay.id, bank.id), book().nextRegistrationChannels().map { it.id })
+        assertEquals(listOf(alipay.id, bank.id), book().nextRegistrationChannels().take(2).map { it.id })
     }
 
     @Test fun reorderRejectsUnknownOrRepeatedChannelsWithoutChangingAnything() = runBlocking {
@@ -406,15 +406,16 @@ class EncryptedBookRepositoryTest {
         assertEquals(initial, book())
     }
 
-    @Test fun registrationSelectionBecomesTheNextDefaultAndDropsDeletedChannels() = runBlocking {
+    @Test fun registrationSortIsRememberedAndDeletedChannelsAreExcludedFromFutureCards() = runBlocking {
         val alipay = book().activeChannels[1]
         repository.saveAsset(MonthlyAssetSnapshot(now, listOf(ChannelBalance(alipay.id, alipay.name, Money(200))), Money.ZERO))
         assertEquals(listOf(alipay.id), book().settings.defaultChannelIds)
-        assertEquals(listOf(alipay.id), book().nextRegistrationChannels().map { it.id })
+        assertEquals(alipay.id, book().nextRegistrationChannels().first().id)
         // 删除渠道后，默认列表不再包含它。
         repository.deleteChannel(alipay.id)
         assertEquals(emptyList<String>(), book().settings.defaultChannelIds)
-        assertEquals(emptyList<Channel>(), book().nextRegistrationChannels())
+        assertEquals(2, book().nextRegistrationChannels().size)
+        assertFalse(book().nextRegistrationChannels().any { it.id == alipay.id })
         database.close(); reopen()
         assertEquals(emptyList<String>(), book().settings.defaultChannelIds)
     }

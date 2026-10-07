@@ -20,17 +20,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
 import com.microsoft.fluentui.tokenized.controls.Button
-import com.microsoft.fluentui.tokenized.controls.CheckBox
-import com.microsoft.fluentui.tokenized.controls.FloatingActionButton
 import com.microsoft.fluentui.tokenized.controls.TextField
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.BookData
@@ -91,7 +85,7 @@ fun AssetsScreen(data: BookData, month: YearMonth, hidden: Boolean, busy: Boolea
                 MonthNavigation(displayedMonth,
                     onPrevious = { navigateTo((request?.page ?: pager.currentPage) - 1) },
                     onNext = { navigateTo((request?.page ?: pager.currentPage) + 1) },
-                    onPickMonth = { pickerVisible = true })
+                    onPickMonth = { pickerVisible = true }, nextEnabled = displayedMonth < currentMonth)
             }
             if (pickerVisible) {
                 MonthPickerDialog(selected = displayedMonth, currentMonth = currentMonth,
@@ -106,11 +100,8 @@ fun AssetsScreen(data: BookData, month: YearMonth, hidden: Boolean, busy: Boolea
                     onRegister = { onRegister(pageMonth) }, onDelete = { onDelete(pageMonth) })
             }
         }
-        if (displayedMonth != currentMonth) {
-            FloatingActionButton(onClick = { navigateTo(CURRENT_MONTH_PAGE) }, text = stringResource(R.string.current_month),
-                icon = ImageVector.vectorResource(R.drawable.ic_current_month),
-                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))
-        }
+        CurrentMonthButton(displayedMonth != currentMonth, onClick = { navigateTo(CURRENT_MONTH_PAGE) },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))
     }
 }
 
@@ -188,26 +179,21 @@ private fun SummaryRow(label: String, money: Money?, hidden: Boolean, emphasis: 
 }
 
 @Composable
-fun AssetEditor(draft: AssetDraft, vm: BookViewModel, busy: Boolean) {
+fun AssetEditor(draft: AssetDraft, vm: BookViewModel, busy: Boolean,
+                onRename: (String) -> Unit, onDelete: (String) -> Unit) {
     EditorDialog(stringResource(if (draft.originalMonth == null) R.string.register_assets else R.string.edit_assets), busy,
         vm::closeAssetDraft, stringResource(R.string.save_assets), vm::saveAsset) {
         DateField(draft.registeredAt, vm::updateAssetDate, stringResource(R.string.registration_date))
-        BookText(stringResource(R.string.select_channels), size = 14.sp, color = LocalBookPalette.current.secondary)
+        BookText(stringResource(R.string.asset_channels_hint), size = 14.sp, color = LocalBookPalette.current.secondary)
         if (draft.balances.isEmpty()) BookText(stringResource(R.string.channel_none))
-        draft.balances.forEach { balance ->
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                        CheckBox(onCheckedChanged = { vm.updateBalance(balance.channelId, selected = it) }, checked = balance.selected, enabled = !busy,
-                            modifier = Modifier.semantics { contentDescription = balance.name })
-                    }
-                    BookText(balance.name, Modifier.weight(1f))
-                }
-                if (balance.selected) AmountField(balance.amount, { vm.updateBalance(balance.channelId, amount = it) },
-                    stringResource(R.string.channel_amount_label, balance.name))
-            }
+        ReorderableChannelCards(draft.balances, { it.channelId }, !busy, vm::reorderAssetChannels) { balance, handle ->
+            ChannelCardHeader(balance.channelId, balance.name, balance.active, !busy,
+                onEdit = { onRename(balance.channelId) }, onDelete = { onDelete(balance.channelId) }, dragHandleModifier = handle)
+            if (!balance.active) BookText(stringResource(R.string.channel_historical), size = 12.sp, color = LocalBookPalette.current.secondary)
+            AmountField(balance.amount, { vm.updateBalance(balance.channelId, it) }, stringResource(R.string.asset_amount),
+                modifier = Modifier.testTag("channel_amount_${balance.channelId}"))
         }
-        // 登记时随手新增渠道：立即创建并自动勾选，不必先去设置页。
+        // 登记时随手新增渠道：立即创建卡片，金额草稿保持在内存。
         LedgerDivider()
         BookText(stringResource(R.string.channel_new_label), size = 14.sp, color = LocalBookPalette.current.secondary)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

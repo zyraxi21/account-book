@@ -63,10 +63,27 @@ class MoneyAndStatisticsTest {
         assertEquals(Money.parse("400"), edited.cumulativeIncome)
     }
 
-    @Test fun rememberedChannelsKeepOrderAndExcludeDeletedChannels() {
+    @Test fun currentChannelOrderOverridesLegacySelectionAndExcludesDeletedChannels() {
         val channels = listOf(Channel("bank", "银行", true, 0), Channel("alipay", "支付宝", true, 1), Channel("wechat", "微信", false, 2))
         val data = BookData(channels = channels, settings = BookSettings(defaultChannelIds = listOf("alipay", "wechat", "bank")))
-        assertEquals(listOf("alipay", "bank"), data.nextRegistrationChannels().map { it.id })
+        assertEquals(listOf("bank", "alipay"), data.nextRegistrationChannels().map { it.id })
+    }
+
+    @Test fun cumulativeIncomeStopsAtTheSelectedMonthEndInShanghaiAcrossYears() {
+        val data = BookData(incomes = listOf(
+            income("december", "100", "2025-12-31T23:59:59"),
+            income("january", "200", "2026-01-01T00:00:00"),
+            income("january-end", "50", "2026-01-31T23:59:59"),
+            income("february", "400", "2026-02-01T00:00:00"),
+        ))
+        assertEquals(Money.ZERO, data.cumulativeIncomeThrough(YearMonth.of(2025, 11)))
+        assertEquals(Money.parse("100"), data.cumulativeIncomeThrough(YearMonth.of(2025, 12)))
+        assertEquals(Money.parse("350"), data.cumulativeIncomeThrough(YearMonth.of(2026, 1)))
+        assertEquals(Money.parse("750"), data.cumulativeIncomeThrough(YearMonth.of(2026, 2)))
+        val edited = data.copy(incomes = data.incomes.filterNot { it.id == "january-end" }.map {
+            if (it.id == "december") it.copy(amount = Money.parse("150")) else it
+        })
+        assertEquals(Money.parse("350"), edited.cumulativeIncomeThrough(YearMonth.of(2026, 1)))
     }
 
     @Test fun incomeIsGroupedByMonthUsingTheBookZone() {

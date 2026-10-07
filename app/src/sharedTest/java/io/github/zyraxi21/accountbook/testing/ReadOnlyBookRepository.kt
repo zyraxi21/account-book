@@ -11,7 +11,7 @@ import java.util.UUID
 /**
  * 只用于验证 UI 隐私与草稿；真实的持久化行为由加密数据库测试验证。
  *
- * 例外是渠道顺序与默认勾选：这两项由界面直接驱动，因此在内存里真实生效，
+ * 例外是渠道管理与设备偏好：它们由界面直接驱动，因此在内存里生效，
  * 使 UI 测试能验证拖动排序和新功能的结果，而不是只能看到抛出的断言。
  */
 class ReadOnlyBookRepository(initial: BookData) : BookRepository {
@@ -21,8 +21,15 @@ class ReadOnlyBookRepository(initial: BookData) : BookRepository {
     override suspend fun deleteAsset(month: YearMonth): Unit = unsupported()
     override suspend fun saveIncome(income: Income, importFingerprint: String?): Unit = unsupported()
     override suspend fun deleteIncome(id: String): Unit = unsupported()
-    override suspend fun renameChannel(id: String, name: String): Unit = unsupported()
-    override suspend fun deleteChannel(id: String): Unit = unsupported()
+    override suspend fun renameChannel(id: String, name: String) {
+        data.value = data.value.copy(channels = data.value.channels.map { if (it.id == id) it.copy(name = name.trim()) else it })
+    }
+    override suspend fun deleteChannel(id: String) {
+        data.value = data.value.copy(
+            channels = data.value.channels.map { if (it.id == id) it.copy(active = false) else it },
+            settings = data.value.settings.copy(defaultChannelIds = data.value.settings.defaultChannelIds.filterNot { it == id }),
+        )
+    }
     override suspend fun setSmsAutoImport(enabled: Boolean): Unit = unsupported()
     override suspend fun setHideOnStartup(enabled: Boolean) { data.value = data.value.copy(settings = data.value.settings.copy(hideOnStartup = enabled)) }
     override suspend fun setAllowScreenshots(enabled: Boolean) { data.value = data.value.copy(settings = data.value.settings.copy(allowScreenshots = enabled)) }

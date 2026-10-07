@@ -19,16 +19,13 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
 import com.microsoft.fluentui.tokenized.controls.Button
-import com.microsoft.fluentui.tokenized.controls.FloatingActionButton
 import com.microsoft.fluentui.tokenized.controls.TextField
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.BookData
@@ -96,7 +93,7 @@ fun IncomeScreen(data: BookData, month: YearMonth, currentMonth: YearMonth, hidd
                     onPrevious = { navigateTo((request?.page ?: pager.currentPage) - 1) },
                     onNext = { navigateTo((request?.page ?: pager.currentPage) + 1) },
                     onPickMonth = { pickerVisible = true },
-                    titleTag = "income_month_title")
+                    titleTag = "income_month_title", nextEnabled = displayedMonth < currentMonth)
             }
             if (pickerVisible) {
                 MonthPickerDialog(selected = displayedMonth, currentMonth = currentMonth,
@@ -109,11 +106,8 @@ fun IncomeScreen(data: BookData, month: YearMonth, currentMonth: YearMonth, hidd
                 MonthlyIncome(data, monthAtPage(page, currentMonth), currentMonth, hidden, busy, onAdd, onParse, onEdit, onDelete)
             }
         }
-        if (displayedMonth != currentMonth) {
-            FloatingActionButton(onClick = { navigateTo(CURRENT_MONTH_PAGE) }, text = stringResource(R.string.current_month),
-                icon = ImageVector.vectorResource(R.drawable.ic_current_month),
-                modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))
-        }
+        CurrentMonthButton(displayedMonth != currentMonth, onClick = { navigateTo(CURRENT_MONTH_PAGE) },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))
     }
 }
 
@@ -124,6 +118,7 @@ private fun MonthlyIncome(data: BookData, month: YearMonth, currentMonth: YearMo
     val palette = LocalBookPalette.current
     val monthIncomes = remember(data.incomes, month) { data.incomesIn(month) }
     val monthIncome = remember(data.incomes, month) { data.incomeIn(month) }
+    val cumulativeIncome = remember(data.incomes, month) { data.cumulativeIncomeThrough(month) }
     LazyColumn(Modifier.fillMaxSize().testTag("income_$month"),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 0.dp, bottom = if (month != currentMonth) 104.dp else 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -132,7 +127,8 @@ private fun MonthlyIncome(data: BookData, month: YearMonth, currentMonth: YearMo
             MoneyText(monthIncome, hidden, large = true, color = palette.brand)
             LedgerDivider()
             BookText(stringResource(R.string.cumulative_income), size = 14.sp, color = palette.secondary)
-            MoneyText(data.cumulativeIncome, hidden)
+            MoneyText(cumulativeIncome, hidden, Modifier.testTag("cumulative_income_$month"))
+            BookText(stringResource(R.string.income_cumulative_hint), size = 12.sp, color = palette.secondary)
         } }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

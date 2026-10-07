@@ -76,6 +76,7 @@ class EncryptedBookRepository(
         dao.saveSnapshot(MonthlyAssetEntity(month, snapshot.registeredAt.toEpochMilli(), snapshot.liability.fen))
         dao.deleteBalances(month)
         dao.insertBalances(balances)
+        saveChannelOrder(dao, balances.filter { channels.getValue(it.channelId).active }.map { it.channelId })
         dao.clearRememberedChannels()
         dao.insertRememberedChannels(balances.filter { channels.getValue(it.channelId).active }
             .mapIndexed { index, balance -> RememberedChannelEntity(balance.channelId, index) })
@@ -106,6 +107,11 @@ class EncryptedBookRepository(
      * 历史资产表的余额顺序存在 channel_balances.position，故意不改写，避免回看旧月份时顺序跳动。
      */
     override suspend fun reorderChannels(orderedIds: List<String>) = write { dao ->
+        val ordered = saveChannelOrder(dao, orderedIds)
+        reorderRemembered(dao, ordered.map { it.id })
+    }
+
+    private suspend fun saveChannelOrder(dao: BookDao, orderedIds: List<String>): List<ChannelEntity> {
         val active = dao.channels().filter { it.active }
         val byId = active.associateBy { it.id }
         if (orderedIds.size != orderedIds.distinct().size || !byId.keys.containsAll(orderedIds)) {
@@ -114,7 +120,7 @@ class EncryptedBookRepository(
         val requested = orderedIds.toSet()
         val ordered = orderedIds.mapNotNull(byId::get) + active.filterNot { it.id in requested }
         dao.saveChannels(ordered.mapIndexed { index, channel -> channel.copy(position = index) })
-        reorderRemembered(dao, ordered.map { it.id })
+        return ordered
     }
 
     /** 只调整默认渠道的相对顺序，成员集合保持原样。 */

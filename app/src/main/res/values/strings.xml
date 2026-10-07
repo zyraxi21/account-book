@@ -50,6 +50,7 @@
     <string name="close">关闭</string>
     <string name="edit">编辑</string>
     <string name="delete">删除</string>
+    <string name="delete_channel">删除渠道</string>
     <string name="delete_record_title">删除这条记录？</string>
     <string name="delete_asset_hint">删除后会重新计算相关月份的资产差额和估算支出。</string>
     <string name="delete_income_hint">删除后会重新计算累计收入和估算支出。短信收入的去重凭据将保留。</string>
@@ -83,9 +84,6 @@
     <string name="sms_permission_explanation">用于在本机解析新收到的工行收入短信。不会读取历史短信、发送短信或联网。</string>
     <string name="request_permission">授权接收短信</string>
     <string name="open_system_settings">打开应用权限设置</string>
-    <string name="channel_management">渠道管理</string>
-    <string name="channel_management_hint">长按渠道名称可拖动调整顺序，列表顺序即登记顺序。下次登记默认选中上次登记时所选的渠道。</string>
-    <string name="channel_drag_hint">长按拖动可调整顺序</string>
     <string name="channel_drag_handle">长按拖动排序</string>
     <string name="channel_new_label">新增渠道</string>
     <string name="channel_add_button">添加</string>
@@ -95,9 +93,10 @@
     <string name="rename_channel">修改渠道名称</string>
     <string name="channel_name">渠道名称</string>
     <string name="channel_name_hint">例如：工商银行、招商银行</string>
-    <string name="channel_none">暂无可用渠道，请先在设置中添加。</string>
-    <string name="select_channels">选择本次登记的渠道</string>
-    <string name="channel_amount_label">%1$s余额（元）</string>
+    <string name="channel_none">暂无渠道，请在下方添加。</string>
+    <string name="asset_channels_hint">长按渠道名称拖动排序。所有卡片均计入资产，空金额按 0 元保存。</string>
+    <string name="channel_historical">已删除的历史渠道，保留当时的名称与余额</string>
+    <string name="income_cumulative_hint">累计至所选月份月底</string>
     <string name="amount_placeholder">0.00</string>
     <string name="currency_value">¥ %1$s</string>
     <string name="encrypted_local_title">数据仅保存在本机</string>
@@ -146,6 +145,12 @@
     <string name="about_sheet_expanded">关于页面已展开</string>
     <string name="about_sheet_collapsed">关于页面已收起</string>
     <string name="about_version">版本 %1$s</string>
+    <string name="about_description">用一份月度对账单，记录资产变化与每一笔收入。</string>
+    <string name="about_features_title">主要功能</string>
+    <string name="about_features">月度资产、负债与净资产\n收入明细与截至月末的累计收入\n工行短信解析与自动入账\nJSON / CSV 备份、合并与恢复</string>
+    <string name="about_currency">默认人民币（CNY），金额精确到分。</string>
+    <string name="about_source">查看开源项目</string>
+    <string name="about_repository_url" translatable="false">https://github.com/zyraxi21/account-book</string>
     <string name="about_export_hint">导出的文件保存到你选择的位置。请妥善保管备份；卸载应用会删除本机加密账本。</string>
     <string name="update_check">检查更新</string>
     <string name="update_checking">正在检查更新…</string>
@@ -191,10 +196,10 @@
     <string name="error_income_positive">收入金额必须大于0。</string>
     <string name="error_amount_overflow">金额或计算结果超出支持范围。</string>
     <string name="error_title">请输入项目，长度不超过120个字符。</string>
-    <string name="error_channel_required">请至少选择一个渠道。</string>
+    <string name="error_channel_required">请先添加至少一个渠道。</string>
     <string name="error_channel_name">请输入渠道名称，长度不超过40个字符。</string>
     <string name="error_channel_exists">已存在同名渠道，请使用其他名称。</string>
-    <string name="error_channel_unavailable">该渠道已不可用，请重新选择。</string>
+    <string name="error_channel_unavailable">该渠道已不可用，请检查渠道信息。</string>
     <string name="error_month_exists">所选月份已有资产表，请返回该月编辑。</string>
     <string name="error_record_missing">记录已不存在，请重新打开。</string>
     <string name="error_date">日期时间无效，请重新选择。</string>
