@@ -49,8 +49,10 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.foundation)
-    // 仅用于系统动态取色和底栏按压反馈；应用控件与主题仍使用 Fluent。
+    // 提供系统动态取色、涟漪与 Snackbar，应用控件与主题使用 Fluent。
     implementation(libs.androidx.compose.material3)
+    // Fluent 复选框等控件会调用 Compose Material 图标，不能只依赖 Fluent 自带图标。
+    implementation(libs.androidx.compose.material.icons.core)
     // FluentTheme 在运行时使用 observeAsState，需显式提供 Compose 的 LiveData 适配模块。
     implementation(libs.androidx.compose.runtime.livedata)
     implementation(libs.androidx.compose.ui)

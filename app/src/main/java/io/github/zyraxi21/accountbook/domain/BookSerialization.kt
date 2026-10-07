@@ -1,6 +1,7 @@
 package io.github.zyraxi21.accountbook.domain
 
 import java.time.Instant
+import java.math.BigDecimal
 import java.time.YearMonth
 import java.time.format.DateTimeParseException
 import java.util.UUID
@@ -58,14 +59,12 @@ private val moneyPattern = Regex("^-?[0-9]+(?:\\.[0-9]{1,2})?$")
  */
 internal fun decodeMoney(field: BookField, row: Int?, value: String): Money {
     if (!moneyPattern.matches(value)) fieldError(field, row, "金额必须是最多两位小数的十进制数")
-    val fraction = value.substringAfter('.', "").padEnd(2, '0').take(2)
-    val whole = value.substringBefore('.').removePrefix("-")
-    val magnitude = try {
-        Math.multiplyExact(whole.toLong(), 100L).let { Math.addExact(it, fraction.toLong()) }
+    val fen = try {
+        BigDecimal(value).movePointRight(2).longValueExact()
     } catch (_: ArithmeticException) {
         fieldError(field, row, "金额超出支持范围")
     }
-    return Money(if (value.startsWith('-')) -magnitude else magnitude)
+    return Money(fen)
 }
 
 internal fun decodeInstant(field: BookField, row: Int?, value: String): Instant = try {
@@ -200,6 +199,10 @@ object BookExporter {
     const val CHANNEL_HEADER = "渠道ID,渠道名称,启用,顺序"
     const val INCOME_HEADER = "收入ID,项目,金额,日期时间,来源"
 
+    /** 保持兼容已发布的三段表格格式，解码端按各自表头逐段恢复。 */
+    fun toCsv(data: BookData): String = listOf(toAssetsCsv(data), toChannelsCsv(data), toIncomesCsv(data))
+        .joinToString("\r\n")
+
     fun toJson(data: BookData, exportedAt: Instant): String = buildString {
         append("{\n")
         append("  \"version\": $FORMAT_VERSION,\n")
@@ -306,7 +309,8 @@ class BookDecoder(private val random: () -> String = { UUID.randomUUID().toStrin
         if (decodedChannels.map { it.id }.distinct().size != decodedChannels.size) {
             fail(BookError.IMPORT_INVALID_FIELD, "渠道 ID 重复")
         }
-        if (decodedChannels.map { it.name.lowercase() }.distinct().size != decodedChannels.size) {
+        val activeNames = decodedChannels.filter { it.active }.map { it.name.lowercase() }
+        if (activeNames.distinct().size != activeNames.size) {
             fail(BookError.IMPORT_DUPLICATE_TITLE, "渠道名称重复")
         }
 
@@ -364,6 +368,36 @@ class BookDecoder(private val random: () -> String = { UUID.randomUUID().toStrin
     fun fromChannelsCsv(text: String): BookData = buildCsv(parseCsvRecords(text), BookSections.CHANNELS)
     fun fromIncomesCsv(text: String): BookData = buildCsv(parseCsvRecords(text), BookSections.INCOMES)
 
+    /** 同时支持整本三段 CSV 和单张表，空表、重排列以及带换行的引号字段均可往返。 */
+    fun fromCsv(text: String): BookData {
+        val rows = parseCsvRecords(text.removePrefix("\uFEFF")).filterNot { it.isBlank() }
+        if (rows.isEmpty()) fail(BookError.IMPORT_EMPTY_FILE, "文件没有表头行")
+        checkLimit(rows.size)
+        val sections = linkedMapOf<BookSections, MutableList<CsvRow>>()
+        var current: MutableList<CsvRow>? = null
+        rows.forEach { row ->
+            val header = CsvLayout(row)
+            val section = when {
+                header.indexOf(BookField.MONTH, -1) >= 0 && header.indexOf(BookField.REGISTERED_AT, -1) >= 0 -> BookSections.ASSETS
+                header.indexOf(BookField.TITLE, -1) >= 0 && header.indexOf(BookField.RECEIVED_AT, -1) >= 0 -> BookSections.INCOMES
+                header.indexOf(BookField.NAME, -1) >= 0 &&
+                    (header.indexOf(BookField.CHANNEL_ID, -1) >= 0 || header.indexOf(BookField.ACTIVE, -1) >= 0 ||
+                        header.indexOf(BookField.POSITION, -1) >= 0) -> BookSections.CHANNELS
+                else -> null
+            }
+            if (section != null) {
+                if (section in sections) fail(BookError.IMPORT_MALFORMED, "CSV 中存在重复表头")
+                current = mutableListOf<CsvRow>().also { sections[section] = it }
+            }
+            (current ?: fail(BookError.IMPORT_UNKNOWN_FORMAT, "无法识别 CSV 表头")).add(row)
+        }
+        val decoded = sections.mapValues { (section, content) -> buildCsv(content, section) }
+        val snapshots = decoded[BookSections.ASSETS]?.snapshots.orEmpty()
+        val channels = decoded[BookSections.CHANNELS]?.channels ?: snapshots.flatMap { it.balances }
+            .distinctBy { it.channelId }.mapIndexed { index, balance -> Channel(balance.channelId, balance.channelName, true, index) }
+        return BookData(channels, snapshots, decoded[BookSections.INCOMES]?.incomes.orEmpty())
+    }
+
     private enum class BookSections { ASSETS, CHANNELS, INCOMES }
 
     /** 空行在解析后是 `[""]` 而不是空列表，必须按"所有单元格都为空"判断才会被跳过。 */
@@ -381,14 +415,16 @@ class BookDecoder(private val random: () -> String = { UUID.randomUUID().toStrin
                     val name = row.required(layout.indexOf(BookField.NAME, 1), BookField.NAME)
                     if (name.length > 40) fieldError(BookField.NAME, row.line, "名称不超过40个字符")
                     // 手工整理过的渠道表常常省略启用状态，此时按"启用"补默认值。
-                    val active = when (val value = row.optional(layout.indexOf(BookField.ACTIVE, 2)).lowercase()) {
+                    val active = when (row.optional(layout.indexOf(BookField.ACTIVE, -1)).lowercase()) {
                         "true", "1", "是", "" -> true
                         "false", "0", "否" -> false
                         else -> fieldError(BookField.ACTIVE, row.line, "应为 true 或 false")
                     }
                     // 没有标识列时按表内顺序生成标识，方便重建渠道表。
-                    val id = row.optional(layout.indexOf(BookField.CHANNEL_ID, 0)).ifEmpty { random() }
-                    val position = row.optional(layout.indexOf(BookField.POSITION, 3)).toIntOrNull() ?: order
+                    val id = row.optional(layout.indexOf(BookField.CHANNEL_ID, -1)).ifEmpty { random() }
+                    val positionText = row.optional(layout.indexOf(BookField.POSITION, -1))
+                    val position = if (positionText.isEmpty()) order else positionText.toIntOrNull()
+                        ?: fieldError(BookField.POSITION, row.line, "顺序必须是整数")
                     Channel(id, name, active, position)
                 }
                 if (channels.map { it.id }.toSet().size < channels.size) fieldError(BookField.CHANNEL_ID, null, "渠道 ID 重复")
@@ -402,7 +438,7 @@ class BookDecoder(private val random: () -> String = { UUID.randomUUID().toStrin
                     val registeredAt = decodeInstant(BookField.REGISTERED_AT, row.line,
                         row.required(layout.indexOf(BookField.REGISTERED_AT, 1), BookField.REGISTERED_AT))
                     val month = decodeMonth(row.line, monthText, registeredAt)
-                    val channelId = row.optional(layout.indexOf(BookField.CHANNEL_ID, 2)).ifEmpty { random() }
+                    val channelId = row.optional(layout.indexOf(BookField.CHANNEL_ID, -1)).ifEmpty { random() }
                     val balance = ChannelBalance(
                         channelId,
                         row.required(layout.indexOf(BookField.CHANNEL_NAME, 3), BookField.CHANNEL_NAME),
@@ -436,12 +472,12 @@ class BookDecoder(private val random: () -> String = { UUID.randomUUID().toStrin
                     val amount = decodeMoney(BookField.AMOUNT, row.line, row.required(layout.indexOf(BookField.AMOUNT, 2), BookField.AMOUNT))
                     if (amount.fen <= 0) fieldError(BookField.AMOUNT, row.line, "收入金额必须大于0")
                     Income(
-                        row.optional(layout.indexOf(BookField.ID, 0)),
+                        row.optional(layout.indexOf(BookField.ID, -1)).ifEmpty { random() },
                         title,
                         amount,
                         decodeInstant(BookField.RECEIVED_AT, row.line,
                             row.required(layout.indexOf(BookField.RECEIVED_AT, 3), BookField.RECEIVED_AT)),
-                        decodeTextSource(row.optional(layout.indexOf(BookField.SOURCE, 4)), row.line),
+                        decodeTextSource(row.optional(layout.indexOf(BookField.SOURCE, -1)), row.line),
                     )
                 }
                 if (incomes.map { it.id }.distinct().size != incomes.size) fieldError(BookField.ID, null, "收入 ID 重复")

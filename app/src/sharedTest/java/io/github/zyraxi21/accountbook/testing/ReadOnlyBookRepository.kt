@@ -19,8 +19,10 @@ class ReadOnlyBookRepository(initial: BookData) : BookRepository {
     override suspend fun renameChannel(id: String, name: String): Unit = unsupported()
     override suspend fun deleteChannel(id: String): Unit = unsupported()
     override suspend fun setSmsAutoImport(enabled: Boolean): Unit = unsupported()
+    override suspend fun setHideOnStartup(enabled: Boolean) { data.value = data.value.copy(settings = data.value.settings.copy(hideOnStartup = enabled)) }
+    override suspend fun setAllowScreenshots(enabled: Boolean) { data.value = data.value.copy(settings = data.value.settings.copy(allowScreenshots = enabled)) }
     override suspend fun importSms(parsed: ParsedIcbcIncome, requireAutoEnabled: Boolean): Boolean = unsupported()
     override suspend fun recordExport(exportedAt: Instant): Unit = unsupported()
-    override suspend fun importBook(data: BookData): ImportMode = unsupported()
+    override suspend fun importBook(data: BookData, mode: ImportMode): BookImportResult = unsupported()
     private fun unsupported(): Nothing = throw AssertionError("隐私测试不应写入账务")
 }

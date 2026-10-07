@@ -44,6 +44,8 @@ data class BookSettings(
     val rememberedChannelIds: List<String> = emptyList(),
     /** 最近一次成功导出的时间，仅用于在设置页说明数据去向。 */
     val exportedAt: Instant? = null,
+    val hideOnStartup: Boolean = true,
+    val allowScreenshots: Boolean = false,
 )
 data class BookData(
     val channels: List<Channel> = emptyList(),
