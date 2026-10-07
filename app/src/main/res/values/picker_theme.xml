@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="bookPickerSurface" format="color" />
+    <attr name="bookPickerForeground" format="color" />
+    <attr name="bookPickerSecondary" format="color" />
+    <attr name="bookPickerAccent" format="color" />
+    <attr name="bookPickerOnAccent" format="color" />
+    <!-- 原生 Fluent 日历通过 XML 属性取色，不能继承 Compose 的 FluentTheme 令牌。 -->
+    <style name="ThemeOverlay.AccountBook.DateTimePicker" parent="">
+        <item name="bookPickerSurface">@color/book_picker_surface</item>
+        <item name="bookPickerForeground">@color/book_picker_foreground</item>
+        <item name="bookPickerSecondary">@color/book_picker_secondary</item>
+        <item name="bookPickerAccent">@color/book_picker_accent</item>
+        <item name="bookPickerOnAccent">@color/book_picker_on_accent</item>
+        <item name="colorPrimary">?attr/bookPickerAccent</item>
+        <item name="colorAccent">?attr/bookPickerAccent</item>
+        <item name="android:textColorPrimary">?attr/bookPickerForeground</item>
+        <item name="android:textColorSecondary">?attr/bookPickerSecondary</item>
+        <item name="fluentuiBackgroundColor">?attr/bookPickerSurface</item>
+        <item name="fluentuiBackgroundSecondaryColor">?attr/bookPickerSurface</item>
+        <item name="fluentuiForegroundColor">?attr/bookPickerForeground</item>
+        <item name="fluentuiForegroundSecondaryColor">?attr/bookPickerSecondary</item>
+        <item name="fluentuiForegroundSecondaryIconColor">?attr/bookPickerSecondary</item>
+        <item name="fluentuiForegroundSelectedColor">?attr/bookPickerAccent</item>
+        <item name="fluentuiForegroundOnPrimaryColor">?attr/bookPickerOnAccent</item>
+        <item name="fluentuiCalendarDayTextDefaultColor">?attr/bookPickerForeground</item>
+        <item name="fluentuiCalendarOtherMonthBackgroundColor">?attr/bookPickerSurface</item>
+        <item name="fluentuiCalendarDayTodayBackgroundColor">?attr/bookPickerSurface</item>
+        <item name="fluentuiCalendarWeekHeadingWeekDayTextColor">?attr/bookPickerSecondary</item>
+        <item name="fluentuiCalendarWeekHeadingWeekendTextColor">?attr/bookPickerSecondary</item>
+        <item name="fluentuiDateTimePickerToolbarTitleTextColor">?attr/bookPickerForeground</item>
+        <item name="fluentuiDateTimePickerToolbarIconColor">?attr/bookPickerAccent</item>
+        <item name="fluentuiDialogCloseIconColor">?attr/bookPickerForeground</item>
+        <item name="fluentuiNumberPickerDefaultTextColor">?attr/bookPickerSecondary</item>
+        <item name="fluentuiNumberPickerSelectedTextColor">?attr/bookPickerAccent</item>
+    </style>
+    <!-- 显式选择颜色角色，避免 AppCompatDialog 按系统模式重置临时配置。 -->
+    <style name="ThemeOverlay.AccountBook.DateTimePicker.Dark">
+        <item name="bookPickerSurface">@color/book_picker_surface_dark</item>
+        <item name="bookPickerForeground">@color/book_picker_foreground_dark</item>
+        <item name="bookPickerSecondary">@color/book_picker_secondary_dark</item>
+        <item name="bookPickerAccent">@color/book_picker_accent_dark</item>
+        <item name="bookPickerOnAccent">@color/book_picker_on_accent_dark</item>
+    </style>
+</resources>

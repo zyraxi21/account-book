@@ -142,6 +142,9 @@
     <string name="allow_screenshots_title">允许前台截屏</string>
     <string name="allow_screenshots_hint">允许应用在前台时截屏；后台和最近任务预览继续隐藏账务数据。</string>
     <string name="about_title">关于</string>
+    <string name="about_sheet_opened">关于页面已打开</string>
+    <string name="about_sheet_expanded">关于页面已展开</string>
+    <string name="about_sheet_collapsed">关于页面已收起</string>
     <string name="about_version">版本 %1$s</string>
     <string name="about_export_hint">导出的文件保存到你选择的位置。请妥善保管备份；卸载应用会删除本机加密账本。</string>
     <string name="loading">正在打开账本…</string>

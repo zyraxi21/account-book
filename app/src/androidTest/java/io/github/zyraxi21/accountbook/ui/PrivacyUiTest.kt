@@ -9,6 +9,10 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.activity.ComponentActivity
 import android.view.WindowManager
 import android.graphics.Bitmap
+import android.graphics.Color
+import android.util.TypedValue
+import androidx.core.graphics.ColorUtils
+import com.microsoft.fluentui.tokenized.bottomsheet.BOTTOMSHEET_HANDLE_TAG
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -98,6 +102,9 @@ class PrivacyUiTest {
         compose.onAllNodes(hasSetTextAction() and hasText("10.25"), useUnmergedTree = true).assertCountEquals(0)
         compose.runOnIdle { vm.togglePrivacy() }
         compose.onNode(hasSetTextAction() and hasText("10.25")).assertExists()
+        compose.runOnIdle { darkTheme = true }
+        compose.onNodeWithContentDescription(context.getString(R.string.select_datetime)).performClick()
+        closeNativeDatePicker()
     }
 
     @Test fun swipesNavigateMonthsAndCurrentMonthCannotAdvance() {
@@ -236,6 +243,9 @@ class PrivacyUiTest {
         compose.onAllNodesWithText(context.getString(R.string.encrypted_local_title)).assertCountEquals(0)
         scrollToText(R.string.about_title).performClick()
         compose.onNodeWithText(context.getString(R.string.encrypted_local_title)).assertExists()
+        compose.onNodeWithTag(BOTTOMSHEET_HANDLE_TAG).assertExists()
+        compose.onNodeWithContentDescription(context.getString(R.string.close)).performClick()
+        compose.onAllNodesWithText(context.getString(R.string.encrypted_local_title)).assertCountEquals(0)
     }
 
     @Test fun alternatingExportsLaunchDocumentPickerWithMatchingMimeAndExtension() {
@@ -350,6 +360,20 @@ class PrivacyUiTest {
             override fun getDescription() = "点击日期选择器关闭图标"
             override fun perform(uiController: UiController, view: View) {
                 assertTrue((view.rootView.layoutParams as WindowManager.LayoutParams).flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+                fun themeColor(attribute: Int): Int = TypedValue().let {
+                    assertTrue(view.context.theme.resolveAttribute(attribute, it, true))
+                    it.data
+                }
+                val foreground = if (darkTheme) Color.WHITE else Color.rgb(36, 36, 36)
+                val surface = themeColor(com.microsoft.fluentui.calendar.R.attr.fluentuiDialogBackgroundColor)
+                for (attribute in listOf(
+                    com.microsoft.fluentui.calendar.R.attr.fluentuiDateTimePickerToolbarTitleTextColor,
+                    com.microsoft.fluentui.calendar.R.attr.fluentuiDialogCloseIconColor,
+                    com.microsoft.fluentui.calendar.R.attr.fluentuiCalendarDayTextDefaultColor,
+                )) {
+                    assertEquals(foreground, themeColor(attribute))
+                    assertTrue("日期弹窗的标题、图标及日期必须清晰可读", ColorUtils.calculateContrast(themeColor(attribute), surface) >= 4.5)
+                }
                 // 同进程调用实际关闭图标，避免真机的 INJECT_EVENTS 限制阻挡返回键注入。
                 assertTrue(view.performClick())
             }

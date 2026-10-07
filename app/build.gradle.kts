@@ -78,6 +78,7 @@ dependencies {
     implementation(libs.fluent.topappbars)
     implementation(libs.fluent.menus)
     implementation(libs.fluent.calendar)
+    implementation(libs.fluent.drawer)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

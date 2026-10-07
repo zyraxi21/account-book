@@ -1,6 +1,7 @@
 package io.github.zyraxi21.accountbook.ui.components
 
 import android.view.WindowManager
+import androidx.appcompat.view.ContextThemeWrapper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicText
@@ -30,6 +31,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import com.microsoft.fluentui.datetimepicker.DateTimePickerDialog
+import com.microsoft.fluentui.theme.FluentTheme
+import com.microsoft.fluentui.theme.ThemeMode
 import com.microsoft.fluentui.theme.token.controlTokens.BasicCardInfo
 import com.microsoft.fluentui.theme.token.controlTokens.BasicCardTokens
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
@@ -112,6 +115,11 @@ fun formatDateTime(time: Instant): String {
 @Composable
 fun DateTimeField(time: Instant, onChange: (Instant) -> Unit, label: String) {
     val context = LocalContext.current
+    val darkTheme = FluentTheme.themeMode == ThemeMode.Dark
+    val pickerContext = remember(context, darkTheme) {
+        ContextThemeWrapper(context, if (darkTheme) R.style.ThemeOverlay_AccountBook_DateTimePicker_Dark
+            else R.style.ThemeOverlay_AccountBook_DateTimePicker)
+    }
     val allowScreenshots = LocalAllowScreenshots.current
     var pickerVisible by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -120,8 +128,8 @@ fun DateTimeField(time: Instant, onChange: (Instant) -> Unit, label: String) {
             text = formatDateTime(time), contentDescription = stringResource(R.string.select_datetime))
     }
     if (pickerVisible) {
-        DisposableEffect(context, allowScreenshots) {
-            val dialog = DateTimePickerDialog(context, DateTimePickerDialog.Mode.DATE_TIME, dateTime = time.atZone(BOOK_ZONE))
+        DisposableEffect(pickerContext, allowScreenshots) {
+            val dialog = DateTimePickerDialog(pickerContext, DateTimePickerDialog.Mode.DATE_TIME, dateTime = time.atZone(BOOK_ZONE))
             dialog.onDateTimePickedListener = object : DateTimePickerDialog.OnDateTimePickedListener {
                 override fun onDateTimePicked(dateTime: ZonedDateTime, duration: Duration) {
                     onChange(dateTime.toInstant())

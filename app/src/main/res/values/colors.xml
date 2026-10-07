@@ -2,4 +2,14 @@
 <resources>
     <!-- 与 Fluent CanvasBackground 一致，避免冷启动首帧的背景跳变。 -->
     <color name="book_window_background">#F5F5F5</color>
+    <color name="book_picker_surface">#FFFFFF</color>
+    <color name="book_picker_foreground">#242424</color>
+    <color name="book_picker_secondary">#424242</color>
+    <color name="book_picker_accent">@android:color/system_accent1_600</color>
+    <color name="book_picker_on_accent">#FFFFFF</color>
+    <color name="book_picker_surface_dark">#1F1F1F</color>
+    <color name="book_picker_foreground_dark">#FFFFFF</color>
+    <color name="book_picker_secondary_dark">#D6D6D6</color>
+    <color name="book_picker_accent_dark">@android:color/system_accent1_200</color>
+    <color name="book_picker_on_accent_dark">#242424</color>
 </resources>

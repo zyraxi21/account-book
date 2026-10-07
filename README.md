@@ -5,9 +5,9 @@
 ## 功能与计算口径
 
 - **资产：**每个自然月保存一份资产表，支持补录、编辑、删除，登记日期时间、渠道余额及负债。所属月份根据登记时间确定，统一使用 `Asia/Shanghai`。
-- **收入：**随时登记、编辑或删除收入，自动汇总累计收入；可粘贴工行短信解析，也可授权后自动登记新收到的工行收入短信。
+- **收入：**按月浏览、登记、编辑或删除收入，自动汇总本月及累计收入；与资产页共享所选月份。可粘贴工行短信解析，也可授权后自动登记新收到的工行收入短信。
 - **渠道：**初始提供银行、支付宝、微信，支持添加、改名及删除。成功保存资产后，在同一事务中记住所选渠道及顺序；下一次新登记恢复选择，金额重新填写。取消或保存失败不会改变记忆。
-- **隐私：**顶栏眼睛图标切换账务显示；默认在启动时隐藏，可在设置中关闭。进入后台始终隐藏。金额、项目、渠道名称及登记时间同时从画面和无障碍语义中遮挡。隐藏后关闭编辑面板和键盘，显示后继续内存草稿。
+- **隐私：**顶栏眼睛图标切换账务显示。自动隐藏开启时，冷启动及从后台返回均隐藏；关闭时，冷启动显示，返回时恢复离开前的显示／隐藏选择。后台临时遮挡不改变手动选择；金额、项目、渠道名称及登记时间同时从画面和无障碍语义中移除，编辑面板及键盘关闭，草稿保留在内存。配置变化保留当前选择及草稿，设置读取完成前保持遮挡。
 - **设置与关于：**自动登记、启动隐藏和前台截屏均用开关实时保存，不弹成功提示。数据仅在本机保存的说明位于“关于”页面。
 - **导入导出：**设置页可把整本账导出为 JSON 或 CSV，也可从这两种格式导入。导出与导入都通过系统文件选择器（SAF）完成，用户自行选择保存位置和来源文件。
 
@@ -24,13 +24,15 @@
 
 ## Compose 与 Fluent 界面
 
-资产、收入、设置、编辑表单及确认对话框均由 Kotlin `@Composable` 构建，没有应用页面的 XML 布局文件。使用 Fluent `FluentTheme`、`AppBar`、`Button`、`TextField`、`BasicCard`、`Dialog`；日期时间选择通过 `DisposableEffect` 托管 Fluent 原生 `DateTimePickerDialog`，离开编辑界面即销毁。底部导航参考 `D:\source\android\myapplication` 的实现，用 Compose 绘制完整导航项，并沿用 Fluent 图标尺寸、排版和颜色令牌。
+资产、收入、设置、编辑表单及确认对话框均由 Kotlin `@Composable` 构建，没有应用页面的 XML 布局文件。使用 Fluent `FluentTheme`、`AppBar`、`Button`、`TextField`、`BasicCard`、`Dialog`；日期时间选择通过 `DisposableEffect` 托管 Fluent 原生 `DateTimePickerDialog`，离开编辑界面即销毁。日期弹窗以单独的 XML 主题桥接原生控件配色，按当前 Compose 模式选择浅色或深色角色，标题、关闭图标、日历数字和时间滚轮均保持清晰，选中态使用系统动态强调色。底部导航参考 `D:\source\android\myapplication` 的实现，用 Compose 绘制完整导航项，并沿用 Fluent 图标尺寸、排版和颜色令牌。
+
+关于页使用 `fluentui_drawer:0.3.10` 的 `com.microsoft.fluentui.tokenized.bottomsheet.BottomSheet`，把手、遮罩和拖动停靠均由 Fluent 实现；支持打开、下滑、点击遮罩、返回键及关闭按钮，关闭动画完成后移除弹层。使用官方固定停靠模式，打开高度为 480dp，并受窗口高度的 85% 限制，正文可滚动；保留系统底部及横向边衬，与主界面共用窗口的截屏保护。所有应用播报文案统一放在 `strings.xml`。[Fluent BottomSheet 接口](https://github.com/microsoft/fluentui-android/wiki/Controls#bottom-sheet)
 
 界面采用月度对账单布局，渠道金额右对齐，集中呈现资产、负债和净资产。默认从系统壁纸配色取得动态品牌种子，展开为 Fluent 的 16 级品牌色阶，并按官方色阶的亮度分布校准对比度；深色模式降低品牌色饱和度。按钮、输入框、汇总强调和导航选中项使用同一套品牌令牌，预览关闭动态取色时回退到 Fluent 蓝 `#0F6CBD`。[Android 动态颜色说明](https://developer.android.com/develop/ui/compose/designsystems/material3#dynamic-color-schemes)
 
 中性背景、表面和正文使用 Fluent 对应令牌；正值绿和负值红保持固定含义。金额使用等宽字体，页面可滚动并限制宽窗口内容宽度。浅色顶栏使用动态品牌色、浅色文字，深色顶栏使用中性表面色。顶栏背景延伸到状态栏，底栏背景延伸到手势及三键导航区域，系统图标明暗按实际背景对比度选择。系统边衬由各栏位消费一次，同时处理横向挖孔、桌面标题栏和编辑面板的键盘边衬。
 
-顶栏为标题保留 20dp 左侧边距，隐私按钮仅显示眼睛图标并保留无障碍描述。月度页面使用 Compose `HorizontalPager`：页面跟随手指移动，松手后吸附或回弹，按钮切换使用 250ms 水平动画。翻页结束后才同步登记目标月份，滑动途中暂停登记；本月为末页，不创建未来页面。“下个月”按钮及滑动最多到本月；查看历史月份时，右下角显示返回“本月”的 Fluent 悬浮按钮。[Compose Pager 说明](https://developer.android.com/develop/ui/compose/layouts/pager)
+顶栏为标题保留 20dp 左侧边距，隐私按钮仅显示眼睛图标并保留无障碍描述。月度页面使用 Compose `HorizontalPager`：标题、月份和月份按钮固定，只有下方账单内容跟随手指移动，松手后吸附或回弹，按钮切换使用 250ms 水平动画。各页登记和删除始终绑定该页月份，滑动期间可点击；删除确认保留打开时的目标月份。连续点击累计目标，反向操作及返回本月可接管动画。点月份可直接打开月份选择器；本月为末页，下一月按钮仍可点击并停留本月。查看历史月份时，右下角显示返回“本月”的 Fluent 悬浮按钮。[Compose Pager 说明](https://developer.android.com/develop/ui/compose/layouts/pager)
 
 系统操作提示使用 Snackbar，在编辑弹窗中也可见。开关视觉轨道为 52×32dp，整行提供至少 48dp 点击区。深色填充按钮改用较暗品牌色阶和白色前景，文字强调色仍保持可读。
 
@@ -76,7 +78,7 @@ Room 2.8.5 通过 SQLCipher 4.19.1 的 `SupportOpenHelperFactory` 打开加密�
 
 ```powershell
 adb devices -l
-adb install -r .\app\build\outputs\apk\debug\app-debug.apk
+adb install -r .\app\build\outputs\apk\release\app-release.apk
 adb shell am start -n io.github.zyraxi21.accountbook/.MainActivity
 ```
 
@@ -167,35 +169,69 @@ gradle/libs.versions.toml           全部构建插件及依赖版本目录
 
 ## 构建与验证
 
-使用 JDK 25、Gradle Wrapper 9.6.0、AGP 9.4.1、KSP 2.3.12。Android SDK 需要 Platform 37（本机 SDK 目录为 `platforms/android-37.0`）和 Build Tools 37.0.0。配置 Android Studio 的 SDK 路径，或在未提交的 `local.properties` 中设置 `sdk.dir`。所有模块依赖及构建插件通过 version catalog 引用，AGP 内置 Kotlin，不再应用 `kotlin-android` 插件。
+使用 JDK 25、Gradle Wrapper 9.8.0、AGP 9.4.1、KSP 2.3.12。Android SDK 需要 Platform 37（本机 SDK 目录为 `platforms/android-37.0`）和 Build Tools 37.0.0。配置 Android Studio 的 SDK 路径，或在未提交的 `local.properties` 中设置 `sdk.dir`。所有模块依赖及构建插件通过 version catalog 引用，AGP 内置 Kotlin，不再应用 `kotlin-android` 插件。
 
 ```powershell
-.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
+.\gradlew.bat :app:assembleRelease --console=plain
 ```
 
-Android Studio 中选择 **Android App 类型的 `app` 配置**和已连接手机，再点击 Run。名称为 `main`、`unitTest`、`androidTest` 的 Android App 配置不代表测试运行器；运行设备测试需要 Android Instrumented Tests 配置，或使用下面的命令。
+日常安装选择 **Release**：使用 AGP 的 `release { optimization { enable = true } }` 开启 R8 代码压缩、优化、混淆及资源压缩，保持默认完整模式。Debug 和 Release 均只打包 `arm64-v8a`。Release 不可调试，Compose 调试工具及测试入口仅在 Debug 中引入；需要断点或布局调试时，在 Android Studio 的 Build Variants 中临时选择 Debug。[Android 官方优化配置](https://developer.android.google.cn/topic/performance/app-optimization/enable-app-optimization)
+
+自用 Release 沿用本机 `.android/debug.keystore` 的开发证书，以便从已有 Debug 覆盖升级，保留账本和 Keystore 密钥；该文件不提交到仓库。更换电脑时先确认签名证书一致。不要卸载或清除应用数据来更新版本。
+
+Android Studio 中选择 **Android App 类型的 `app` 配置**和已连接手机。名称为 `main`、`unitTest`、`androidTest` 的 Android App 配置不代表测试运行器；运行设备测试需要 Android Instrumented Tests 配置。
+
+本地检查与按需构建测试包：
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:assembleDebugAndroidTest --console=plain
+```
 
 输出文件：
 
-- 安装包：`app/build/outputs/apk/debug/app-debug.apk`，由本机开发密钥签名，适合自行安装验证。
+- 日常安装包：`app/build/outputs/apk/release/app-release.apk`。
+- 按需调试包：`app/build/outputs/apk/debug/app-debug.apk`，使用 `:app:assembleDebug` 构建。
+- 混淆映射及合并规则：`app/build/outputs/mapping/release/mapping.txt`、`configuration.txt`，与对应 APK 一同留存，用于定位异常。
+- R8 分析：`:app:analyzeReleaseR8Config` 生成 `app/build/reports/r8/r8-config-analyzer-release.html`。
 - 测试包：`app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`。
 - 单元测试报告：`app/build/reports/tests/testDebugUnitTest/index.html`。
-- Lint 报告：`app/build/reports/lint-results-debug.html`。
+- Lint 报告：`app/build/reports/lint-results-release.html`。
+
+SQLCipher 的 JNI 和 Room 数据库构造入口沿用依赖的保留规则。应用 `.keep` 仅忽略 Fluent 发布包中两个编译期 Parcelize 注解的缺失提示，未加入应用级整包保留。原生库保留必要的动态符号；当前依赖已去除调试节及静态符号表，无额外原生调试信息随 APK 安装。
+
+### 安装包体积
+
+2026-10-07 的最终 Release 使用当前工作区版本 `2026.10.07.1` 构建，数据按 MiB（1 MiB = 1048576 字节）记录：
+
+| 产物 | APK 大小 | DEX 未压缩大小 |
+| --- | --- | --- |
+| 实施计划中的原全架构 Debug 基准 | 48.62 MiB | 38.84 MiB |
+| 手机原安装的 arm64 Debug 实测 | 43.27 MiB | 38.84 MiB |
+| 本轮按需生成的 arm64 Debug | 45.89 MiB | 39.49 MiB |
+| 最终 arm64 Release | **6.03 MiB**（6319586 字节） | **2.87 MiB** |
+
+最终 APK 相对计划基准减少约 **87.6%**，相对手机原安装包减少约 **86.1%**。两种构建均只含 `arm64-v8a` 的 SQLCipher 和 Compose 路径原生库；Release 不可调试，Manifest 没有测试活动及测试运行器。
+
+覆盖安装后，Android `StorageStats.appBytes` 实测应用代码占用为 **6.15 MiB**（6448640 字节）。该值不包含账本数据和缓存，后续 ART 编译也可能改变它，不能与 APK 文件大小混为同一口径。原账本及 Keystore 密钥保留，未卸载或清除应用数据。
 
 2026-10-07 本轮验证：
 
 | 检查 | 结果 |
 | --- | --- |
-| 单元测试 | 53 项通过，覆盖金额、统计、短信、编解码、合并与覆盖、隐私草稿和主题对比度 |
-| Lint | 0 错误、6 条已有依赖升级提示 |
-| Debug APK 与测试 APK | 均构建成功，API 37 编译及目标设置保持不变 |
-| 加密数据库设备测试 | 小米 25113PN0EC、Android 16（API 36）上 19 项通过 |
-| Compose 界面与活动生命周期测试 | 同一手机上 10 项通过，其中 8 项界面测试、2 项前后台隐私与截屏测试 |
+| 单元测试 | 63 项通过，覆盖金额、统计、短信、编解码、合并与覆盖、渠道排序、隐私草稿和主题对比度 |
+| Release Lint | 0 错误、7 条警告：6 条依赖升级提示及 1 条仅 arm64 的 ChromeOS 兼容性提示 |
+| Release、Debug 与测试 APK | 均构建成功，API 37 编译及目标设置保持不变 |
+| 加密数据库设备测试 | 小米 25113PN0EC、Android 16（API 36）上 23 项通过 |
+| Compose 界面与活动生命周期测试 | 同一手机上 20 项通过，其中 17 项界面测试、3 项隐私与截屏生命周期测试；一次活动启动中断的用例单独重跑通过 |
+| 日期与弹层专项检查 | 在上述两个既有界面用例中追加检查；原生日期弹窗浅深色前景及对比度、Fluent BottomSheet 把手与关闭动画均通过，仅复测受影响用例 |
+| 最终 Release 覆盖升级 | 同证书覆盖安装成功，不可调试，原加密账本正常加载；隔离测试数据已清理 |
 | 依赖检查 | `debugRuntimeClasspath` 不包含 `fluentui_tablayout` |
 
 数据库设备测试覆盖加密重启读写、首次创建中断恢复、明文 SQLite 拒读、数据库及旁路文件明文扫描、损坏文件保留、渠道记忆与历史名称、月份唯一约束、短信去重与删除后重投、并发登记、JSON/CSV 自身备份重复合并、新渠道余额外键顺序、覆盖保留偏好和短信凭据、非法覆盖回滚、实际文件读写及 v1/v2→v3 迁移。
 
-界面回归验证了资产登记的 Fluent 复选框、日期选择器、隐私语义和草稿恢复、Snackbar、月份跟手移动与短拖回弹、本月边界和悬浮按钮、设置静默保存、关于页、导入模式选择及覆盖确认。使用捕获文件选择器合约的测试替身验证 JSON→CSV→JSON 的 MIME 和默认后缀，真实文件读写通过隔离文件完成；跨文档提供方的手选目录、覆盖文件及取消交互仍需人工验收。
+界面回归验证了资产登记的 Fluent 复选框、日期选择器、隐私语义和草稿恢复、Snackbar、固定月份栏与正文跟手移动、短拖回弹、滑动中各页按钮的月份归属、连续翻页和反向接管、本月边界和悬浮按钮、设置静默保存、关于页、月份选择器、按月收入及渠道拖动排序。使用捕获文件选择器合约的测试替身验证 JSON→CSV→JSON 的 MIME 和默认后缀，真实文件读写通过隔离文件完成；跨文档提供方的手选目录、覆盖文件及取消交互仍需人工验收。
+
+加密事务、短信去重和 JSON／CSV 往返的完整自动化检查在 Debug 上执行。最终压缩 Release 已确认构建、签名、架构及原账本加载；完整的 Release 导入导出界面流程、真实短信广播和 API 37 运行尚未验证。本轮日期和弹层修改只复测对应的既有界面用例，没有再次运行整套真机测试。
 
 新版已覆盖安装到手机，保留原账本与密钥，没有清除应用数据。数据库测试使用独立临时账本，界面预览使用测试替身，活动测试结束后恢复原有偏好。设备输出位于 `app/build/reports/device/`，测试数据的界面预览位于设备应用外部私有目录 `files/ui-verification/`。Android 17（API 37）的实际运行兼容性仍需对应真机或模拟器验证。
 

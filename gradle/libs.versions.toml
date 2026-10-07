@@ -20,6 +20,7 @@ fluentIcons = "0.3.2"
 fluentTopAppBars = "0.3.9"
 fluentMenus = "0.3.5"
 fluentCalendar = "0.3.3"
+fluentDrawer = "0.3.10"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -54,6 +55,7 @@ fluent-icons = { group = "com.microsoft.fluentui", name = "fluentui_icons", vers
 fluent-topappbars = { group = "com.microsoft.fluentui", name = "fluentui_topappbars", version.ref = "fluentTopAppBars" }
 fluent-menus = { group = "com.microsoft.fluentui", name = "fluentui_menus", version.ref = "fluentMenus" }
 fluent-calendar = { group = "com.microsoft.fluentui", name = "fluentui_calendar", version.ref = "fluentCalendar" }
+fluent-drawer = { group = "com.microsoft.fluentui", name = "fluentui_drawer", version.ref = "fluentDrawer" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
