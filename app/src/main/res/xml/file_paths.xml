@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 只暴露下载安装包所在的外部私有目录，不开放账务数据库与密钥目录。 -->
+<paths>
+    <external-files-path
+        name="updates"
+        path="Download/" />
+</paths>

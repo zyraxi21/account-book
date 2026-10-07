@@ -125,7 +125,8 @@ fun BookApp(vm: BookViewModel) {
             launch { snackbar.showSnackbar(text, withDismissAction = true) }
         }
     }
-    val modalVisible = chooseImportMode || confirmReplace || permissionExplanation ||
+    // About弹层自带提示宿主，因此打开时收起主界面宿主，避免同一条消息出现两次。
+    val modalVisible = aboutVisible || chooseImportMode || confirmReplace || permissionExplanation ||
         (!hidden && (assetDraft != null || incomeDraft != null || channelDraft != null || smsText != null ||
             deleteAsset != null || deleteIncome != null || deleteChannel != null))
     CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots) {
@@ -210,7 +211,7 @@ fun BookApp(vm: BookViewModel) {
                 }) { BookText(stringResource(R.string.sms_permission_explanation)) }
         }
         // 关于页以底部弹层显示，设置页和底部导航保持可见，下滑或点击遮罩即可关闭。
-        if (aboutVisible) AboutScreen(onDismiss = { aboutVisible = false })
+        if (aboutVisible) AboutScreen(vm) { aboutVisible = false }
     }
 }
 

@@ -7,18 +7,29 @@ import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.data.transfer.BookTransfer
 import io.github.zyraxi21.accountbook.data.transfer.ExportFormat
 import io.github.zyraxi21.accountbook.data.transfer.ImportRequest
+import io.github.zyraxi21.accountbook.data.update.ApkDownloader
+import io.github.zyraxi21.accountbook.data.update.DownloadError
+import io.github.zyraxi21.accountbook.data.update.DownloadState
+import io.github.zyraxi21.accountbook.data.update.UpdateError
+import io.github.zyraxi21.accountbook.data.update.UpdateRepository
+import io.github.zyraxi21.accountbook.data.update.UpdateResult
 import io.github.zyraxi21.accountbook.domain.*
 import io.github.zyraxi21.accountbook.sms.IcbcSmsParser
 import io.github.zyraxi21.accountbook.sms.SmsParseResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 import java.time.Clock
 import java.time.Instant
 import java.time.YearMonth
 import java.util.UUID
+
+/** 轮询下载进度的间隔；DownloadManager 不提供进度回调。 */
+private const val POLL_INTERVAL_MS = 700L
 
 data class BookUiState(val loading: Boolean = true, val data: BookData = BookData(), val storageError: BookError? = null)
 data class BalanceDraft(val channelId: String, val name: String, val selected: Boolean, val amount: String = "")
@@ -38,6 +49,19 @@ sealed interface TransferTask {
 /** 导入完成后的说明文案：模板里带有实际写入的条数。 */
 data class ImportSummary(val template: Int, val channels: Int, val snapshots: Int, val incomes: Int)
 
+/**
+ * 检查更新的界面状态。
+ * 空闲与失败都回到 [Idle]——失败文案走 Snackbar，弹窗只用于“有新版本”这一种情况。
+ */
+sealed interface UpdateUiState {
+    data object Idle : UpdateUiState
+    data object Checking : UpdateUiState
+    data class Available(val release: ReleaseInfo) : UpdateUiState
+    /** [progress] 为 0..100，-1 表示总量未知。 */
+    data class Downloading(val progress: Int) : UpdateUiState
+    data class ReadyToInstall(val file: File) : UpdateUiState
+}
+
 /** 所有敏感草稿仅存在 ViewModel 中，不写入 SavedStateHandle 或持久化 Bundle。 */
 class BookViewModel(
     private val repository: BookRepository,
@@ -45,6 +69,10 @@ class BookViewModel(
     private val clock: Clock = Clock.system(BOOK_ZONE),
     /** 为空时表示当前没有可用的导入导出通道，界面会禁用相关按钮。 */
     private val transfer: BookTransfer? = null,
+    /** 为空时禁用检查更新；当前版本号从构建配置读取，不在代码中硬编码。 */
+    private val updater: UpdateRepository? = null,
+    private val downloader: ApkDownloader? = null,
+    private val currentVersion: AppVersion? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(BookUiState())
     val state = _state.asStateFlow()
@@ -78,6 +106,12 @@ class BookViewModel(
     val chooseImportMode = _chooseImportMode.asStateFlow()
     private val _importSummary = MutableStateFlow<ImportSummary?>(null)
     val importSummary = _importSummary.asStateFlow()
+    /** 检查更新的整体状态机；界面据此渲染按钮、进度与弹窗。 */
+    private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
+    val updateState = _updateState.asStateFlow()
+    private var downloadId: Long? = null
+    private var downloadedFile: java.io.File? = null
+    private var downloadPoll: Job? = null
     private var observation: Job? = null
     private var privacyInitialized = false
     private var privacyTouched = false
@@ -375,6 +409,106 @@ class BookViewModel(
         return true
     }
 
+    /**
+     * 检查更新。查不到新版本时通过 Snackbar 提示；失败时按原因分类给出可执行文案。
+     * 联网行为仅限此处，不涉及任何账务数据。
+     */
+    fun checkForUpdates() {
+        val client = updater
+        val version = currentVersion
+        if (client == null || version == null) { notifyMessage(R.string.update_check_failed); return }
+        // 已有任务在跑时不重复发起，避免并发请求触发限流。
+        if (_updateState.value is UpdateUiState.Checking || _updateState.value is UpdateUiState.Downloading) return
+        _updateState.value = UpdateUiState.Checking
+        viewModelScope.launch {
+            when (val result = client.check(version)) {
+                is UpdateResult.UpToDate -> {
+                    _updateState.value = UpdateUiState.Idle
+                    notifyMessage(result.reason.resource())
+                }
+                is UpdateResult.Available -> _updateState.value = UpdateUiState.Available(result.release)
+                is UpdateResult.Failed -> {
+                    _updateState.value = UpdateUiState.Idle
+                    notifyMessage(result.error.resource())
+                }
+            }
+        }
+    }
+
+    /** 用户选择稍后，关闭弹窗但不清理已下载的包。 */
+    fun dismissUpdate() {
+        if (_updateState.value is UpdateUiState.Downloading) return
+        _updateState.value = UpdateUiState.Idle
+    }
+
+    /** 确认下载。缺少安装包地址时直接提示，不进入下载态。 */
+    fun startUpdateDownload() {
+        val release = (_updateState.value as? UpdateUiState.Available)?.release ?: return
+        val target = downloader
+        val url = release.apkUrl
+        if (target == null || url == null) { notifyMessage(R.string.update_no_apk); return }
+        val id = target.enqueue(url, ApkDownloader.CURRENT_FILE_NAME)
+        if (id == null) { notifyMessage(R.string.update_download_failed); return }
+        downloadId = id
+        _updateState.value = UpdateUiState.Downloading(0)
+        pollDownload()
+    }
+
+    /** 轮询下载进度；DownloadManager 不提供回调，只能定时查询。 */
+    private fun pollDownload() {
+        val target = downloader ?: return
+        val id = downloadId ?: return
+        downloadPoll?.cancel()
+        downloadPoll = viewModelScope.launch {
+            while (true) {
+                when (val state = target.query(id)) {
+                    is DownloadState.Running -> _updateState.value = UpdateUiState.Downloading(state.progress)
+                    is DownloadState.Completed -> {
+                        downloadedFile = state.file
+                        _updateState.value = UpdateUiState.ReadyToInstall(state.file)
+                        notifyMessage(R.string.update_download_done)
+                        return@launch
+                    }
+                    is DownloadState.Failed -> {
+                        target.cancel(id)
+                        downloadId = null
+                        _updateState.value = UpdateUiState.Idle
+                        notifyMessage(state.error.resource())
+                        return@launch
+                    }
+                    DownloadState.Idle -> return@launch
+                }
+                delay(POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    /** 取消下载并清理落盘文件。 */
+    fun cancelUpdateDownload() {
+        val target = downloader
+        downloadPoll?.cancel()
+        downloadId?.let { target?.cancel(it) }
+        downloadId = null
+        downloadedFile?.let { target?.cleanup(it) }
+        downloadedFile = null
+        _updateState.value = UpdateUiState.Idle
+    }
+
+    /**
+     * 调起系统安装器。
+     * Android 8.0 起需要用户先授予安装未知来源应用权限，未授权时返回 false 供界面引导。
+     */
+    fun installUpdate(): Boolean {
+        val target = downloader ?: return false
+        val file = downloadedFile ?: return false
+        // Android 8.0 起需先取得安装未知来源应用的授权。
+        if (!target.canInstall(file)) return false
+        return target.startInstall(file)
+    }
+
+    /** 拉起未知来源安装的授权设置页。 */
+    fun openInstallPermissionSettings(): Boolean = downloader?.openInstallPermissionSettings() ?: false
+
     fun requestImport() { if (allowTransfer()) _chooseImportMode.value = true }
     fun cancelImport() { _chooseImportMode.value = false; _confirmReplace.value = false }
     fun chooseImport(mode: ImportMode) {
@@ -401,11 +535,15 @@ class BookViewModel(
         private val repository: BookRepository,
         private val parser: IcbcSmsParser,
         private val transfer: BookTransfer? = null,
+        private val updater: UpdateRepository? = null,
+        private val downloader: ApkDownloader? = null,
+        private val currentVersion: AppVersion? = null,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(BookViewModel::class.java))
-            return BookViewModel(repository, parser, transfer = transfer) as T
+            return BookViewModel(repository, parser, transfer = transfer, updater = updater,
+                downloader = downloader, currentVersion = currentVersion) as T
         }
     }
 }
@@ -442,4 +580,32 @@ fun BookError.resource(): Int = when (this) {
     BookError.IMPORT_LIMIT_EXCEEDED -> R.string.error_import_limit
     BookError.EXPORT_UNAVAILABLE -> R.string.error_export_unavailable
     BookError.FILE_TOO_LARGE -> R.string.error_file_too_large
+}
+
+/** 把查询失败原因映射为用户可执行的文案，避免一律显示“检查失败”。 */
+fun UpdateError.resource(): Int = when (this) {
+    UpdateError.OFFLINE -> R.string.update_error_offline
+    UpdateError.TIMEOUT -> R.string.update_error_timeout
+    UpdateError.RATE_LIMITED -> R.string.update_error_rate_limited
+    UpdateError.NOT_FOUND -> R.string.update_error_not_found
+    UpdateError.SERVER -> R.string.update_error_server
+    UpdateError.PARSE -> R.string.update_error_parse
+    UpdateError.IO -> R.string.update_error_io
+}
+
+/** 无新版本时区分具体原因：已是最新、仓库为空、或只有预发布，这些都不是错误。 */
+fun ReleaseSelector.Failure.resource(): Int = when (this) {
+    ReleaseSelector.Failure.UP_TO_DATE -> R.string.update_up_to_date
+    ReleaseSelector.Failure.NO_RELEASE -> R.string.update_no_release
+    ReleaseSelector.Failure.ALL_PRERELEASE -> R.string.update_only_prerelease
+    ReleaseSelector.Failure.UNPARSEABLE -> R.string.update_error_parse
+    ReleaseSelector.Failure.NETWORK -> R.string.update_error_offline
+    ReleaseSelector.Failure.UNKNOWN -> R.string.update_check_failed
+}
+
+fun DownloadError.resource(): Int = when (this) {
+    DownloadError.NO_APK -> R.string.update_no_apk
+    DownloadError.NO_SPACE -> R.string.update_error_no_space
+    DownloadError.NOT_ALLOWED -> R.string.update_download_not_allowed
+    DownloadError.IO -> R.string.update_download_failed
 }
