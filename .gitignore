@@ -34,6 +34,9 @@ google-services.json
 # 发布校验的临时产物，本地生成不入库
 /verification/release/
 
+# WorkBuddy 本地工作数据（记忆、会话日志等），仅保留在本机
+.workbuddy/
+
 # Android Profiling
 *.hprof
 
