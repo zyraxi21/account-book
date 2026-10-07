@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
 import com.microsoft.fluentui.theme.token.controlTokens.SheetAccessibilityAnnouncement
 import com.microsoft.fluentui.tokenized.bottomsheet.BottomSheet
+import com.microsoft.fluentui.tokenized.progress.LinearProgressIndicator
 import com.microsoft.fluentui.tokenized.bottomsheet.BottomSheetValue
 import com.microsoft.fluentui.tokenized.bottomsheet.rememberBottomSheetState
 import com.microsoft.fluentui.tokenized.controls.Button
@@ -41,6 +42,7 @@ import io.github.zyraxi21.accountbook.domain.Channel
 import io.github.zyraxi21.accountbook.domain.ImportMode
 import io.github.zyraxi21.accountbook.domain.Income
 import io.github.zyraxi21.accountbook.domain.MonthlyAssetSnapshot
+import io.github.zyraxi21.accountbook.domain.ReleaseNotesFormatter
 import io.github.zyraxi21.accountbook.sms.IcbcSmsParser
 import io.github.zyraxi21.accountbook.sms.ParsedIcbcIncome
 import io.github.zyraxi21.accountbook.ui.BookViewModel
@@ -197,12 +199,9 @@ private fun UpdateSection(updateState: UpdateUiState, vm: BookViewModel) {
     }
 }
 
-/** 安装需要未知来源授权；未授权时先引导到系统设置页，再由用户点击安装。 */
+/** 安装需要未知来源授权；未授权时引导到系统设置页，再由用户返回后点击安装。 */
 private fun installOrGuide(vm: BookViewModel) {
-    if (vm.installUpdate()) return
-    //拉起授权设置页；即使设备未返回结果，也提示用户手动确认，避免静默失败。
-    vm.openInstallPermissionSettings()
-    vm.notifyMessage(R.string.update_install_permission_needed)
+    vm.installUpdate()
 }
 
 /** 新版本弹窗：展示版本号与更新说明原文，提供“稍后”与“立即下载”。 */
@@ -210,10 +209,14 @@ private fun installOrGuide(vm: BookViewModel) {
 private fun UpdateAvailableDialog(state: UpdateUiState.Available, vm: BookViewModel) {
     val release = state.release
     val maxHeight = bookDialogMaxHeight()
-    val notes = release.notes.trim().ifEmpty { stringResource(R.string.update_no_notes) }
+    // Release 正文是 Markdown，按纯文本渲染前先规整掉标记符号。
+    val fallback = stringResource(R.string.update_no_notes)
+    val notes = remember(release.notes, fallback) {
+        ReleaseNotesFormatter.format(release.notes).ifEmpty { fallback }
+    }
     EditorDialog(title = stringResource(R.string.update_available_title), busy = false,
         onClose = { vm.dismissUpdate() }, saveLabel = stringResource(R.string.update_download_now),
-        onSave = { vm.startUpdateDownload() }) {
+        onSave = { vm.startUpdateDownload() }, snackbarHost = false) {
         BookText(stringResource(R.string.update_available_message, release.version.toString()),
             size = 18.sp, weight = FontWeight.Medium)
         if (release.apkUrl == null) {
@@ -227,32 +230,43 @@ private fun UpdateAvailableDialog(state: UpdateUiState.Available, vm: BookViewMo
     }
 }
 
-/** 下载进度弹窗：展示百分比并允许取消。 */
+/** 下载进度弹窗：展示百分比并允许取消。进度条使用 Fluent 控件。 */
 @Composable
 private fun UpdateProgressDialog(state: UpdateUiState.Downloading, vm: BookViewModel) {
     EditorDialog(title = stringResource(R.string.update_downloading), busy = true,
         onClose = { vm.cancelUpdateDownload() }, saveLabel = stringResource(R.string.update_cancel_download),
-        onSave = { vm.cancelUpdateDownload() }) {
+        onSave = { vm.cancelUpdateDownload() }, snackbarHost = false) {
         BookText(
             if (state.progress >= 0) stringResource(R.string.update_progress, state.progress)
             else stringResource(R.string.update_progress_unknown), size = 16.sp)
+        // 总量未知时用不确定进度样式，避免显示成 0% 造成误判。
         if (state.progress >= 0) {
-            androidx.compose.material3.LinearProgressIndicator(
-                progress = { state.progress / 100f }, modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(progress = state.progress / 100f, modifier = Modifier.fillMaxWidth())
         } else {
-            androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         }
     }
 }
 
-/** 下载完成后的安装弹窗：确认后调起系统安装器。 */
+/**
+ * 下载完成后的安装弹窗。
+ * 授权指引常驻显示：设置页拉起失败时用户仍能在此看到该去哪里开启，
+ * 不依赖一次性的 Snackbar——从系统设置返回后弹窗仍在。
+ */
 @Composable
 private fun UpdateInstallDialog(vm: BookViewModel) {
+    val settingsMissing by vm.installSettingsMissing.collectAsStateWithLifecycle()
     EditorDialog(title = stringResource(R.string.update_download_done), busy = false,
-        onClose = { vm.dismissUpdate() }, saveLabel = stringResource(R.string.update_install),
-        onSave = { installOrGuide(vm) }) {
+        onClose = { vm.dismissUpdate(); vm.clearInstallSettingsMissing() },
+        saveLabel = stringResource(R.string.update_install),
+        onSave = { vm.clearInstallSettingsMissing(); installOrGuide(vm) }, snackbarHost = false) {
         BookText(stringResource(R.string.update_install_permission_message), size = 14.sp,
             color = LocalBookPalette.current.secondary)
+        if (settingsMissing) {
+            // 设置页未能拉起时给出可手动执行的路径，而不是反复弹出提示。
+            BookText(stringResource(R.string.update_install_manual_path), size = 14.sp,
+                color = LocalBookPalette.current.secondary)
+        }
     }
 }
 

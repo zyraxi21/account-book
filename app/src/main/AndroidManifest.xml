@@ -5,8 +5,15 @@
     <!-- 仅用于“关于”页检查更新；应用不联网同步账务，账务数据从不离开本机。 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Android 11+ 查询下载状态需要；安装器授权通过系统设置页完成，不声明 INSTALL_PACKAGES。 -->
+    <!-- Android 11+ 查询下载状态需要。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      申请「安装未知来源应用」的授权，必须显式声明这一权限，
+      否则 ACTION_MANAGE_UNKNOWN_APP_SOURCES 无法拉起授权页。
+      注意与 INSTALL_PACKAGES 区分：后者是系统级权限，普通应用申请也不会被授予，
+      本应用只通过系统安装器完成安装，不需要也不应声明它。
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <application

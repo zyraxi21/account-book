@@ -192,7 +192,7 @@ gradle/libs.versions.toml           全部构建插件及依赖版本目录
 
 日常安装选择 **Release**：使用 AGP 的 `release { optimization { enable = true } }` 开启 R8 代码压缩、优化、混淆及资源压缩，保持默认完整模式。Debug 和 Release 均只打包 `arm64-v8a`。Release 不可调试，Compose 调试工具及测试入口仅在 Debug 中引入；需要断点或布局调试时，在 Android Studio 的 Build Variants 中临时选择 Debug。[Android 官方优化配置](https://developer.android.google.cn/topic/performance/app-optimization/enable-app-optimization)
 
-自用 Release 沿用本机 `.android/debug.keystore` 的开发证书，以便从已有 Debug 覆盖升级，保留账本和 Keystore 密钥；该文件不提交到仓库。更换电脑时先确认签名证书一致。不要卸载或清除应用数据来更新版本。
+Release 签名从项目根目录的 `keystore.properties` 读取，该文件含口令、已被 `.gitignore` 排除，不会进版本库。首次配置时复制 `keystore.properties.example` 并填写本机 `storeFile` 路径与三项口令；缺任一项时构建直接报错，不会退回 debug 签名。**不要用 `~/.android/debug.keystore` 发布**：其口令是 Android SDK 的公开默认值，任何人都能伪造出同签名的 APK。更换电脑时需确认使用同一证书，否则无法覆盖安装、必须卸载重装（卸载会删除加密账本与 Keystore 密钥）。不要卸载或清除应用数据来更新版本。
 
 Android Studio 中选择 **Android App 类型的 `app` 配置**和已连接手机。名称为 `main`、`unitTest`、`androidTest` 的 Android App 配置不代表测试运行器；运行设备测试需要 Android Instrumented Tests 配置。
 

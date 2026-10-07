@@ -104,3 +104,62 @@ object ReleaseSelector {
         return text.contains('-') || text.contains('_')
     }
 }
+/**
+ * Release notes 的轻量格式化。
+ *
+ * GitHub Release 正文是 Markdown，而界面按纯文本渲染，直接显示会出现
+ * `##`、`**`、`-` 等符号。这里只做只影响阅读的规整，不做完整解析：
+ * 去掉标题井号、强调星号与引用块，并压缩连续空行。
+ * 不解释 HTML 或链接语法，避免引入注入风险。
+ */
+object ReleaseNotesFormatter {
+    fun format(raw: String, maxLines: Int = DEFAULT_MAX_LINES): String {
+        val text = raw.replace("\r\n", "\n").replace('\r', '\n')
+        val builder = StringBuilder()
+        var blank = 0
+        var lines = 0
+        for (line in text.lines()) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) {
+                // 连续空行压缩为一个，避免大量空白把说明推散。
+                blank++
+                if (blank > 1 || builder.isEmpty()) continue
+            } else {
+                blank = 0
+            }
+            if (lines >= maxLines) {
+                builder.append('\n').append(TRUNCATION_HINT)
+                return builder.toString()
+            }
+            builder.append(cleanLine(trimmed)).append('\n')
+            lines++
+        }
+        return builder.toString().trimEnd()
+    }
+
+    /** 去掉一行开头的 Markdown 修饰符与行内强调符号。 */
+    private fun cleanLine(line: String): String {
+        var result = line
+        // 标题：`### 标题` → `标题`；引用与列表符号一并去掉。
+        val markers = listOf("#", ">", "-", "*", "+")
+        var changed = true
+        while (changed) {
+            changed = false
+            val head = result.trimStart()
+            for (marker in markers) {
+                if (head.length > marker.length && head.startsWith(marker) &&
+                    (marker != "-" || head.length > 1 && head[1] == ' ')) {
+                    result = head.substring(marker.length).trimStart()
+                    changed = true
+                    break
+                }
+            }
+        }
+        // 行内强调与代码标记：`**粗体**`、`code` → 内容本身。
+        result = result.replace("**", "").replace("`", "")
+        return result
+    }
+
+    private const val DEFAULT_MAX_LINES = 60
+    private const val TRUNCATION_HINT = "…（完整内容见 Release 页面）"
+}

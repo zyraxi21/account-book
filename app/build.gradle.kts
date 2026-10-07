@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -15,8 +17,8 @@ android {
         applicationId = "io.github.zyraxi21.accountbook"
         minSdk = 34
         targetSdk = 37
-        versionCode = 202610071
-        versionName = "2026.10.07.1"
+        versionCode = 202610072
+        versionName = "2026.10.07.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -24,10 +26,38 @@ android {
         }
     }
 
+    // 读取本地签名配置；缺失或未填写时构建直接失败，不退回 debug 签名。
+    val keystorePropertiesFile = rootProject.file("keystore.properties")
+    val keystoreProperties = Properties().apply {
+        if (keystorePropertiesFile.exists()) {
+            keystorePropertiesFile.inputStream().use { load(it) }
+        }
+    }
+
+    signingConfigs {
+        create("release") {
+            val storePath = keystoreProperties.getProperty("storeFile")
+            require(!storePath.isNullOrBlank()) {
+                "缺少 keystore.properties 中的 storeFile。请复制 keystore.properties.example 并填写本机路径与口令。"
+            }
+            // 相对路径按根目录解析，便于换机器时只改配置不改脚本。
+            storeFile = rootProject.file(storePath)
+            listOf("storePassword", "keyAlias", "keyPassword").forEach { name ->
+                require(!keystoreProperties.getProperty(name).isNullOrBlank()) {
+                    "keystore.properties 中的 $name 未填写，请补全后重新构建。"
+                }
+            }
+            storePassword = keystoreProperties.getProperty("storePassword")
+            keyAlias = keystoreProperties.getProperty("keyAlias")
+            keyPassword = keystoreProperties.getProperty("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
-            // 自用版本沿用本机开发签名，覆盖安装保留账本和 Keystore 密钥。
-            signingConfig = signingConfigs.getByName("debug")
+            // 发布签名来自 keystore.properties，不用 debug 签名——
+            // 后者口令公开，等同于任何人都能伪造同签名 APK。
+            signingConfig = signingConfigs.getByName("release")
             isDebuggable = false
             optimization {
                 enable = true
@@ -80,6 +110,8 @@ dependencies {
     implementation(libs.fluent.menus)
     implementation(libs.fluent.calendar)
     implementation(libs.fluent.drawer)
+    // 下载进度等线性进度条使用 Fluent 控件，与其余界面保持一致。
+    implementation(libs.fluent.progress)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -125,3 +125,50 @@ class ReleaseSelectorTest {
         assertNull((outcome as ReleaseSelector.Outcome.NewVersion).release.apkUrl)
     }
 }
+/**
+ * 用首次正式发布时的真实 GitHub Releases 数据固化解析与判定行为。
+ *
+ * 该仓库实际发布的 tag 带 `v` 前缀（`v2026.10.07.1`），而`versionName`
+ * 不带前缀（`2026.10.07.1`）。两者必须解析为同一版本，否则应用会把
+ * 自己的版本误判为「有更新」而反复提示。
+ */
+class RealReleaseTagTest {
+    private fun release(
+        tag: String,
+        draft: Boolean = false,
+        prerelease: Boolean = false,
+        apkName: String? = "account-book-2026.10.07.1-arm64-v8a.apk",
+    ) = ReleaseInfo(tag, "记账本 $tag", "首个正式发布版本", AppVersion.parse(tag)!!,
+        apkName?.let { "https://github.com/zyraxi21/account-book/releases/download/$tag/$it" },
+        prerelease, draft, "2026-10-07T12:49:18Z")
+
+    @Test fun tagWithVPrefixMatchesVersionNameWithoutPrefix() {
+        val fromTag = AppVersion.parse("v2026.10.07.1")!!
+        val fromVersionName = AppVersion.parse("2026.10.07.1")!!
+        assertEquals(fromVersionName, fromTag)
+        assertEquals(0, fromTag.compareTo(fromVersionName))
+    }
+
+    /** 自己发布的版本必须判为「已是最新」，不能提示更新。 */
+    @Test fun publishedReleaseIsReportedAsUpToDate() {
+        val outcome = ReleaseSelector.select(
+            listOf(release("v2026.10.07.1")), AppVersion.parse("2026.10.07.1")!!)
+        assertTrue(outcome is ReleaseSelector.Outcome.UpToDate)
+        assertEquals(ReleaseSelector.Failure.UP_TO_DATE, (outcome as ReleaseSelector.Outcome.UpToDate).reason)
+    }
+
+    @Test fun apkAssetIsExposedForDownload() {
+        val outcome = ReleaseSelector.select(
+            listOf(release("v2026.10.08.1")), AppVersion.parse("2026.10.07.1")!!)
+        assertTrue(outcome is ReleaseSelector.Outcome.NewVersion)
+        val apk = (outcome as ReleaseSelector.Outcome.NewVersion).release.apkUrl
+        assertTrue("应解析出APK 下载地址", apk != null && apk.endsWith(".apk"))
+    }
+
+    /** 非 .apk 资源不得被当作安装包。 */
+    @Test fun nonApkAssetIsNotUsedAsInstaller() {
+        val outcome = ReleaseSelector.select(
+            listOf(release("v2026.10.08.1", apkName = null)), AppVersion.parse("2026.10.07.1")!!)
+        assertNull((outcome as ReleaseSelector.Outcome.NewVersion).release.apkUrl)
+    }
+}

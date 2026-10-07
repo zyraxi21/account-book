@@ -12,6 +12,23 @@
 
 尚未发布的内容将记录在此处。
 
+## [2026.10.07.2] - 2026-10-07
+
+修复检查更新在实际使用中暴露的问题，并改用正式发布签名。
+
+### 修复
+
+- 修复点击安装时提示无安装权限却不弹出系统授权页的问题，原因是清单缺少 `REQUEST_INSTALL_PACKAGES` 声明。
+- 修复「下载完成，点击安装」提示同时出现两次的问题，关于弹层与更新弹窗各自带了一个提示宿主。
+- 修复安装授权页无法拉起时无指引的问题，改为在弹窗内常驻显示手动开启路径。
+
+### 变更
+
+- 更新说明改为规整掉 Markdown 标记后显示，不再出现 `##`、`**` 等符号。
+- 下载进度条改用 Fluent 控件，与界面其余部分保持一致。
+- 发布签名改由 `keystore.properties` 提供，不再沿用口令公开的 debug 证书。
+- 将版本号更新为 `2026.10.07.2`，`versionCode` 更新为 `202610072`。
+
 ## [2026.10.07.1] - 2026-10-07
 
 首个正式发布版本，覆盖从本地加密记账到检查更新的完整功能。
@@ -66,5 +83,6 @@
 - 移除被 `fluentui_icons` 官方箭头替换的自绘上一月／下一月图标资源。
 - 移除桌面账本表格转 JSON 的开发辅助脚本 `verification/make_import_json.py`。
 
-[未发布]: https://github.com/zyraxi21/account-book/compare/v2026.10.07.1...HEAD
+[未发布]: https://github.com/zyraxi21/account-book/compare/v2026.10.07.2...HEAD
+[2026.10.07.2]: https://github.com/zyraxi21/account-book/compare/v2026.10.07.1...v2026.10.07.2
 [2026.10.07.1]: https://github.com/zyraxi21/account-book/releases/tag/v2026.10.07.1

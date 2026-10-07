@@ -10,6 +10,7 @@ import io.github.zyraxi21.accountbook.data.transfer.ImportRequest
 import io.github.zyraxi21.accountbook.data.update.ApkDownloader
 import io.github.zyraxi21.accountbook.data.update.DownloadError
 import io.github.zyraxi21.accountbook.data.update.DownloadState
+import io.github.zyraxi21.accountbook.data.update.InstallOutcome
 import io.github.zyraxi21.accountbook.data.update.UpdateError
 import io.github.zyraxi21.accountbook.data.update.UpdateRepository
 import io.github.zyraxi21.accountbook.data.update.UpdateResult
@@ -112,6 +113,7 @@ class BookViewModel(
     private var downloadId: Long? = null
     private var downloadedFile: java.io.File? = null
     private var downloadPoll: Job? = null
+    private val _installSettingsMissing = MutableStateFlow(false)
     private var observation: Job? = null
     private var privacyInitialized = false
     private var privacyTouched = false
@@ -498,13 +500,31 @@ class BookViewModel(
      * 调起系统安装器。
      * Android 8.0 起需要用户先授予安装未知来源应用权限，未授权时返回 false 供界面引导。
      */
-    fun installUpdate(): Boolean {
-        val target = downloader ?: return false
-        val file = downloadedFile ?: return false
-        // Android 8.0 起需先取得安装未知来源应用的授权。
-        if (!target.canInstall(file)) return false
-        return target.startInstall(file)
+    /**
+     * 调起系统安装器。Android 8.0 起需要用户先授予安装未知来源应用权限，
+     * 未授权时引导至系统设置页，并明确告知需手动返回后再点安装。
+     */
+    fun installUpdate() {
+        val target = downloader ?: return
+        val file = downloadedFile ?: return
+        when (target.install(file)) {
+            InstallOutcome.Started -> Unit
+            InstallOutcome.PermissionRequired -> {
+                // 拉起设置页；即使厂商 ROM 不响应，也提示用户手动前往开启。
+                val launched = target.openInstallPermissionSettings()
+                _message.value = R.string.update_install_permission_needed
+                if (!launched) _installSettingsMissing.value = true
+            }
+            InstallOutcome.Failed -> _message.value = R.string.update_install_failed
+        }
     }
+
+    /**
+     * 设置页是否未能拉起。界面据此在弹窗内常驻提示，
+     * 避免只弹一次 Snackbar 后用户无从下手。
+     */
+    val installSettingsMissing = _installSettingsMissing.asStateFlow()
+    fun clearInstallSettingsMissing() { _installSettingsMissing.value = false }
 
     /** 拉起未知来源安装的授权设置页。 */
     fun openInstallPermissionSettings(): Boolean = downloader?.openInstallPermissionSettings() ?: false

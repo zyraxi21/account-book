@@ -28,11 +28,17 @@ render.experimental.xml
 *.jks
 *.keystore
 
+# 本机发布签名配置（含口令，仅保留在本机）
+/keystore.properties
+
 # Google Services (e.g. APIs or Firebase)
 google-services.json
 
 # 发布校验的临时产物，本地生成不入库
 /verification/release/
+
+# R8 混淆映射输出（含数十 MB 的 mapping.txt），随对应 APK 自行留存，不入库
+/app/release/
 
 # WorkBuddy 本地工作数据（记忆、会话日志等），仅保留在本机
 .workbuddy/

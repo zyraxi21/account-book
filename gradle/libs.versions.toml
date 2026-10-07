@@ -23,6 +23,9 @@ fluentTopAppBars = "0.3.9"
 fluentMenus = "0.3.5"
 fluentCalendar = "0.3.3"
 fluentDrawer = "0.3.10"
+# 进度条模块独立于 fluentui_controls。Maven 上 0.3.8及以上尚未发布（404），
+# 0.3.7 是当前可用最高版本，与 fluentui_topappbars:0.3.9 的传递依赖兼容。
+fluentProgress = "0.3.7"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -59,6 +62,7 @@ fluent-topappbars = { group = "com.microsoft.fluentui", name = "fluentui_topappb
 fluent-menus = { group = "com.microsoft.fluentui", name = "fluentui_menus", version.ref = "fluentMenus" }
 fluent-calendar = { group = "com.microsoft.fluentui", name = "fluentui_calendar", version.ref = "fluentCalendar" }
 fluent-drawer = { group = "com.microsoft.fluentui", name = "fluentui_drawer", version.ref = "fluentDrawer" }
+fluent-progress = { group = "com.microsoft.fluentui", name = "fluentui_progress", version.ref = "fluentProgress" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

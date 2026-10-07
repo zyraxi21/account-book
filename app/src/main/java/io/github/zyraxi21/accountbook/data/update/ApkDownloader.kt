@@ -24,6 +24,16 @@ sealed interface DownloadState {
     data class Completed(val file: File) : DownloadState
 }
 
+/** 调起系统安装器的结果，供界面决定是否引导授权。 */
+sealed interface InstallOutcome {
+    /** 已成功拉起系统安装器。 */
+    data object Started : InstallOutcome
+    /** 尚未获得安装未知来源应用的授权，需先引导至系统设置。 */
+    data object PermissionRequired : InstallOutcome
+    /** 已授权但仍无法拉起安装器。 */
+    data object Failed : InstallOutcome
+}
+
 /**
  * 通过系统 [DownloadManager] 下载安装包并调起系统安装器。
  *
@@ -98,14 +108,16 @@ class ApkDownloader(private val context: Context) {
         }.getOrNull()
     }
 
-    /** 调起系统安装器安装 [file]；返回是否成功拉起。 */
-    fun startInstall(file: File): Boolean {
-        val uri = installUri(file) ?: return false
+    /** 调起系统安装器安装 [file]。 */
+    fun install(file: File): InstallOutcome {
+        if (!canInstall(file)) return InstallOutcome.PermissionRequired
+        val uri = installUri(file) ?: return InstallOutcome.Failed
         val intent = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, APK_MIME)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        return runCatching { context.startActivity(intent) }.isSuccess
+        return if (runCatching { context.startActivity(intent) }.isSuccess) InstallOutcome.Started
+        else InstallOutcome.Failed
     }
 
     /** 该文件是否允许被安装器读取；不允许时需要引导用户开启未知来源安装。 */
@@ -122,16 +134,21 @@ class ApkDownloader(private val context: Context) {
         }
     }
 
-    /** 打开未知来源安装的设置页；返回是否成功拉起。 */
+    /** 打开未知来源安装的授权页；返回是否成功拉起。 */
     fun openInstallPermissionSettings(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-        return runCatching {
-            context.startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-            true
-        }.getOrDefault(false)
+        // 部分厂商 ROM 不实现按包跳转的设置页，逐级回退到全局设置与安全页。
+        val candidates = listOf(
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")),
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES),
+            Intent(Settings.ACTION_SECURITY_SETTINGS),
+        )
+        for (intent in candidates) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val launched = runCatching { context.startActivity(intent) }.isSuccess
+            if (launched) return true
+        }
+        return false
     }
 
     /** 按约定路径定位已下载的安装包；不存在时返回 null。 */
