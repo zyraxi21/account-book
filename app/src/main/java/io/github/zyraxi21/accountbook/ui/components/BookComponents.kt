@@ -20,9 +20,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,26 +51,26 @@ import java.util.Locale
 @Composable
 fun BookText(text: String, modifier: Modifier = Modifier, size: TextUnit = 16.sp,
              weight: FontWeight = FontWeight.Normal, color: Color = LocalBookPalette.current.foreground,
-             numeric: Boolean = false) {
+             align: TextAlign = TextAlign.Unspecified) {
+    // 不指定字体族，跟随系统默认字体（包含金额等数字）。
     BasicText(text, modifier, style = TextStyle(color = color, fontSize = size, lineHeight = size * 1.45f,
-        fontWeight = weight, fontFamily = if (numeric) FontFamily.Monospace else FontFamily.Default))
+        fontWeight = weight, textAlign = align))
 }
 
 @Composable
 fun PrivateText(value: String, hidden: Boolean, modifier: Modifier = Modifier, size: TextUnit = 16.sp,
-                weight: FontWeight = FontWeight.Normal, color: Color = LocalBookPalette.current.foreground,
-                numeric: Boolean = false) {
+                weight: FontWeight = FontWeight.Normal, color: Color = LocalBookPalette.current.foreground) {
     val hiddenDescription = stringResource(R.string.privacy_hidden)
     BookText(if (hidden) stringResource(R.string.privacy_mask) else value,
         if (hidden) modifier.clearAndSetSemantics { contentDescription = hiddenDescription } else modifier,
-        size, weight, if (hidden) LocalBookPalette.current.secondary else color, numeric)
+        size, weight, if (hidden) LocalBookPalette.current.secondary else color)
 }
 
 @Composable
 fun MoneyText(money: Money, hidden: Boolean, modifier: Modifier = Modifier, large: Boolean = false,
               color: Color = LocalBookPalette.current.foreground) {
     PrivateText(stringResource(R.string.currency_value, money.formatted()), hidden, modifier,
-        if (large) 28.sp else 18.sp, FontWeight.Medium, color, numeric = true)
+        if (large) 28.sp else 18.sp, FontWeight.Medium, color)
 }
 
 private object LedgerCardTokens : BasicCardTokens() {
@@ -136,16 +137,28 @@ fun DateTimeField(time: Instant, onChange: (Instant) -> Unit, label: String) {
     }
 }
 
+/** 弹窗宽度：两侧各留 24dp，避免在小屏上铺满整个屏幕宽度；平板上以 560dp 封顶。 */
+@Composable
+fun bookDialogMaxWidth(): Dp = with(LocalDensity.current) {
+    (LocalWindowInfo.current.containerSize.width.toDp() - 48.dp).coerceAtLeast(240.dp).coerceAtMost(560.dp)
+}
+
+/** 弹窗最大高度：留出 72dp，让用户仍能看到背后的界面。 */
+@Composable
+fun bookDialogMaxHeight(): Dp = with(LocalDensity.current) {
+    (LocalWindowInfo.current.containerSize.height.toDp() - 72.dp).coerceAtLeast(200.dp)
+}
+
 @Composable
 fun EditorDialog(title: String, busy: Boolean, onClose: () -> Unit, saveLabel: String, onSave: () -> Unit,
                  content: @Composable ColumnScope.() -> Unit) {
-    val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
-    val maxHeight = (windowHeight - 72.dp).coerceAtLeast(200.dp)
+    val maxHeight = bookDialogMaxHeight()
+    val maxWidth = bookDialogMaxWidth()
     Dialog(onDismiss = onClose, dialogProperties = DialogProperties(dismissOnBackPress = !busy,
         dismissOnClickOutside = !busy, securePolicy = SecureFlagPolicy.Inherit, usePlatformDefaultWidth = false)) {
         // 同时禁止控件内部把输入值写入系统保存状态，敏感草稿只由 ViewModel 持有。
         CompositionLocalProvider(LocalSaveableStateRegistry provides null) {
-            Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = maxHeight).imePadding().padding(24.dp),
+            Column(Modifier.widthIn(max = maxWidth).fillMaxWidth().heightIn(max = maxHeight).imePadding().padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 BookText(title, size = 22.sp, weight = FontWeight.SemiBold)
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),

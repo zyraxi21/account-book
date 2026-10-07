@@ -11,9 +11,13 @@ interface BookRepository {
     suspend fun deleteAsset(month: YearMonth)
     suspend fun saveIncome(income: Income, importFingerprint: String? = null)
     suspend fun deleteIncome(id: String)
-    suspend fun addChannel(name: String)
+    /** 新建渠道并返回它，供登记弹窗立即插入勾选行。 */
+    suspend fun addChannel(name: String): Channel
     suspend fun renameChannel(id: String, name: String)
     suspend fun deleteChannel(id: String)
+
+    /** 按给定顺序重排启用渠道；未列出的启用渠道保持相对顺序排在其后。 */
+    suspend fun reorderChannels(orderedIds: List<String>)
     suspend fun setSmsAutoImport(enabled: Boolean)
     suspend fun setHideOnStartup(enabled: Boolean)
     suspend fun setAllowScreenshots(enabled: Boolean)

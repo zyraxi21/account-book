@@ -65,8 +65,23 @@ class MoneyAndStatisticsTest {
 
     @Test fun rememberedChannelsKeepOrderAndExcludeDeletedChannels() {
         val channels = listOf(Channel("bank", "银行", true, 0), Channel("alipay", "支付宝", true, 1), Channel("wechat", "微信", false, 2))
-        val data = BookData(channels = channels, settings = BookSettings(rememberedChannelIds = listOf("alipay", "wechat", "bank")))
+        val data = BookData(channels = channels, settings = BookSettings(defaultChannelIds = listOf("alipay", "wechat", "bank")))
         assertEquals(listOf("alipay", "bank"), data.nextRegistrationChannels().map { it.id })
+    }
+
+    @Test fun incomeIsGroupedByMonthUsingTheBookZone() {
+        val data = BookData(incomes = listOf(
+            income("salary", "300", "2026-02-15T12:00:00"),
+            income("bonus", "100", "2026-02-20T12:00:00"),
+            income("january", "50", "2026-01-31T12:00:00"),
+        ))
+        val february = data.incomesIn(YearMonth.of(2026, 2))
+        assertEquals(listOf("bonus", "salary"), february.map { it.id })
+        assertEquals(Money.parse("400"), data.incomeIn(YearMonth.of(2026, 2)))
+        assertEquals(Money.parse("50"), data.incomeIn(YearMonth.of(2026, 1)))
+        assertEquals(Money.ZERO, data.incomeIn(YearMonth.of(2026, 3)))
+        // 按月小计与汇总口径一致。
+        assertEquals(Money.parse("400"), data.summary(YearMonth.of(2026, 2)).monthlyIncome)
     }
 
     private fun snapshot(date: String, amount: String, debt: String) = MonthlyAssetSnapshot(

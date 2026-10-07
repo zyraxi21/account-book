@@ -22,7 +22,9 @@ import java.util.UUID
 
 data class BookUiState(val loading: Boolean = true, val data: BookData = BookData(), val storageError: BookError? = null)
 data class BalanceDraft(val channelId: String, val name: String, val selected: Boolean, val amount: String = "")
-data class AssetDraft(val originalMonth: YearMonth?, val registeredAt: Instant, val balances: List<BalanceDraft>, val liability: String = "")
+data class AssetDraft(val originalMonth: YearMonth?, val registeredAt: Instant, val balances: List<BalanceDraft>, val liability: String = "",
+                      /** 弹窗内新增渠道的输入框，同样只由 ViewModel 持有，隐藏后恢复不丢。 */
+                      val newChannelName: String = "")
 data class IncomeDraft(val id: String, val title: String, val amount: String, val receivedAt: Instant,
                        val source: IncomeSource, val fingerprint: String? = null)
 data class ChannelDraft(val id: String? = null, val name: String = "")
@@ -79,6 +81,9 @@ class BookViewModel(
     private var observation: Job? = null
     private var privacyInitialized = false
     private var privacyTouched = false
+    private var userPrivacyHidden = true
+    private var backgroundObscured = false
+    private var returningFromBackground = false
     val thisMonth: YearMonth get() = YearMonth.now(clock)
 
     init { reload() }
@@ -86,24 +91,61 @@ class BookViewModel(
     fun reload() {
         observation?.cancel()
         _state.value = _state.value.copy(loading = true, storageError = null)
+        updatePrivacyVisibility()
         observation = viewModelScope.launch {
             try {
                 repository.observeBook().collect {
                     if (!privacyInitialized) {
-                        if (!privacyTouched) _privacyHidden.value = it.settings.hideOnStartup
+                        if (!privacyTouched) userPrivacyHidden = it.settings.hideOnStartup
                         privacyInitialized = true
                     }
                     _state.value = BookUiState(loading = false, data = it)
+                    updatePrivacyVisibility()
                 }
             } catch (error: CancellationException) { throw error
             } catch (error: Exception) {
                 _state.value = _state.value.copy(loading = false, storageError = (error as? BookException)?.error ?: BookError.STORAGE_UNAVAILABLE)
+                updatePrivacyVisibility()
             }
         }
     }
 
-    fun togglePrivacy() { privacyTouched = true; _privacyHidden.value = !_privacyHidden.value; dismissMessage() }
-    fun hidePrivateData() { privacyTouched = true; _privacyHidden.value = true; dismissMessage() }
+    fun togglePrivacy() {
+        privacyTouched = true
+        userPrivacyHidden = !userPrivacyHidden
+        updatePrivacyVisibility()
+        dismissMessage()
+    }
+    fun hidePrivateData() {
+        privacyTouched = true
+        userPrivacyHidden = true
+        updatePrivacyVisibility()
+        dismissMessage()
+    }
+
+    /** 暂停时立即遮挡界面，但不改写用户通过眼睛按钮作出的选择。 */
+    fun obscureInBackground() {
+        backgroundObscured = true
+        updatePrivacyVisibility()
+        dismissMessage()
+    }
+
+    /** 配置变化也会暂停活动；只有真正离开应用才应用返回时的隐藏偏好。 */
+    fun onBackgroundStopped() { returningFromBackground = true }
+
+    fun onForeground() {
+        if (returningFromBackground && privacyInitialized && _state.value.data.settings.hideOnStartup) {
+            userPrivacyHidden = true
+        }
+        returningFromBackground = false
+        backgroundObscured = false
+        updatePrivacyVisibility()
+    }
+
+    private fun updatePrivacyVisibility() {
+        _privacyHidden.value = !privacyInitialized || _state.value.loading || _state.value.storageError != null ||
+            backgroundObscured || userPrivacyHidden
+    }
     fun moveMonth(delta: Long) { _selectedMonth.value = minOf(_selectedMonth.value.plusMonths(delta), thisMonth) }
     fun selectMonth(month: YearMonth) { _selectedMonth.value = minOf(month, thisMonth) }
     fun currentMonth() { _selectedMonth.value = thisMonth }
@@ -115,16 +157,16 @@ class BookViewModel(
         return !_state.value.loading && _state.value.storageError == null && !_busy.value
     }
 
-    fun openAssets() {
+    fun openAssets(month: YearMonth) {
         if (!allowEdit()) return
         val data = _state.value.data
-        val snapshot = data.snapshot(_selectedMonth.value)
+        val snapshot = data.snapshot(month)
         val selected = snapshot?.balances?.map { it.channelId } ?: data.nextRegistrationChannels().map { it.id }
         val existing = snapshot?.balances?.associateBy { it.channelId }.orEmpty()
         val ids = (selected + data.activeChannels.map { it.id }).distinct()
         val channels = data.channels.associateBy { it.id }
-        val time = snapshot?.registeredAt ?: if (_selectedMonth.value == YearMonth.now(clock)) clock.instant()
-            else _selectedMonth.value.atEndOfMonth().atTime(23, 59).atZone(BOOK_ZONE).toInstant()
+        val time = snapshot?.registeredAt ?: if (month == thisMonth) clock.instant()
+            else month.atEndOfMonth().atTime(23, 59).atZone(BOOK_ZONE).toInstant()
         _assetDraft.value = AssetDraft(snapshot?.month, time, ids.mapNotNull { id -> channels[id]?.let { channel ->
             BalanceDraft(id, existing[id]?.channelName ?: channel.name, id in selected, existing[id]?.amount?.inputText().orEmpty())
         } }, snapshot?.liability?.inputText().orEmpty())
@@ -137,6 +179,32 @@ class BookViewModel(
         }) }
     }
     fun updateLiability(value: String) { _assetDraft.value = _assetDraft.value?.copy(liability = value) }
+    fun updateNewChannelName(name: String) { _assetDraft.value = _assetDraft.value?.copy(newChannelName = name.take(40)) }
+
+    /**
+     * 登记时随手新增渠道：立即落库并勾选，不必先去设置页。
+     * 不走 perform，避免在还在编辑时弹出“已保存”；新行出现本身就是反馈。
+     */
+    fun addChannelToDraft() {
+        if (!allowEdit()) return
+        val name = _assetDraft.value?.newChannelName?.trim().orEmpty()
+        if (name.isEmpty()) { _message.value = R.string.error_channel_name; return }
+        _busy.value = true
+        viewModelScope.launch {
+            try {
+                val channel = repository.addChannel(name)
+                val current = _assetDraft.value ?: return@launch
+                _assetDraft.value = current.copy(
+                    balances = current.balances + BalanceDraft(channel.id, channel.name, selected = true),
+                    newChannelName = "",
+                )
+            } catch (error: CancellationException) { throw error
+            } catch (error: Exception) {
+                _message.value = (error as? BookException)?.error?.resource() ?: R.string.error_storage
+            } finally { _busy.value = false }
+        }
+    }
+
     fun closeAssetDraft() { if (!_busy.value) _assetDraft.value = null }
     fun saveAsset() {
         if (!allowEdit()) return
@@ -150,7 +218,7 @@ class BookViewModel(
             _assetDraft.value = null
         }
     }
-    fun deleteAsset() { if (allowEdit()) perform(R.string.deleted) { repository.deleteAsset(_selectedMonth.value) } }
+    fun deleteAsset(month: YearMonth) { if (allowEdit()) perform(R.string.deleted) { repository.deleteAsset(month) } }
 
     fun openIncome(income: Income? = null) {
         if (!allowEdit()) return
@@ -199,11 +267,32 @@ class BookViewModel(
         }
     }
     fun deleteChannel(id: String) { if (allowEdit()) perform(R.string.deleted) { repository.deleteChannel(id) } }
+
+    /** 拖动排序只在松手时落库一次；不弹“已保存”，顺序变化本身就是反馈。 */
+    fun commitChannelOrder(ids: List<String>) { if (allowEdit()) writeQuietly { repository.reorderChannels(ids) } }
     fun setSmsEnabled(enabled: Boolean) { saveSetting { repository.setSmsAutoImport(enabled) } }
     fun setHideOnStartup(enabled: Boolean) { saveSetting { repository.setHideOnStartup(enabled) } }
     fun setAllowScreenshots(enabled: Boolean) { saveSetting { repository.setAllowScreenshots(enabled) } }
     private fun saveSetting(action: suspend () -> Unit) {
-        if (!_state.value.loading && _state.value.storageError == null) perform(successMessage = null, action = action)
+        if (!_state.value.loading && _state.value.storageError == null && !_busy.value) writeQuietly(action)
+    }
+
+    /**
+     * 即时生效的写入：设备偏好与渠道排序都是单行更新，不进入全局**忙碌**状态。
+     *
+     * “忙碌”会让设置页所有按钮、开关短暂置灰，整页看起来像闪了一下，所以这类写入不走 [perform]。
+     * 失败仍会通过 snackbar 报告。
+     */
+    private fun writeQuietly(action: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                action()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _message.value = (error as? BookException)?.error?.resource() ?: R.string.error_storage
+            }
+        }
     }
 
     // --- 导入导出 ---------------------------------------------------------
@@ -265,7 +354,9 @@ class BookViewModel(
 
     /** 导入可能带来新的账务内容，回到前台时先隐藏，避免恢复现场直接暴露。 */
     private fun reassertPrivacy() {
-        _privacyHidden.value = true
+        privacyTouched = true
+        userPrivacyHidden = true
+        updatePrivacyVisibility()
         _assetDraft.value = null
         _incomeDraft.value = null
         _channelDraft.value = null

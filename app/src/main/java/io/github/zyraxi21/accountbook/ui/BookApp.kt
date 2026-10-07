@@ -8,7 +8,6 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -47,6 +46,7 @@ import io.github.zyraxi21.accountbook.ui.settings.AboutScreen
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
+import java.time.YearMonth
 
 @Composable
 fun BookApp(vm: BookViewModel) {
@@ -73,8 +73,7 @@ fun BookApp(vm: BookViewModel) {
     val keyboard = LocalSoftwareKeyboardController.current
     var tab by remember { mutableIntStateOf(0) }
     var aboutVisible by remember { mutableStateOf(false) }
-    BackHandler(aboutVisible) { aboutVisible = false }
-    var deleteAsset by remember { mutableStateOf(false) }
+    var deleteAsset by remember { mutableStateOf<YearMonth?>(null) }
     var deleteIncome by remember { mutableStateOf<Income?>(null) }
     var deleteChannel by remember { mutableStateOf<Channel?>(null) }
     var permissionExplanation by remember { mutableStateOf(false) }
@@ -128,10 +127,10 @@ fun BookApp(vm: BookViewModel) {
     }
     val modalVisible = chooseImportMode || confirmReplace || permissionExplanation ||
         (!hidden && (assetDraft != null || incomeDraft != null || channelDraft != null || smsText != null ||
-            deleteAsset || deleteIncome != null || deleteChannel != null))
+            deleteAsset != null || deleteIncome != null || deleteChannel != null))
     CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots) {
         Column(Modifier.fillMaxSize().background(palette.background), horizontalAlignment = Alignment.CenterHorizontally) {
-            BookTopBar(hidden, vm::togglePrivacy, if (aboutVisible) R.string.about_title else R.string.app_name)
+            BookTopBar(hidden, vm::togglePrivacy)
             Column(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
                 if (hidden && !state.loading && state.storageError == null) {
@@ -145,12 +144,14 @@ fun BookApp(vm: BookViewModel) {
                             BookText(stringResource(R.string.storage_error_hint), size = 14.sp, color = palette.secondary)
                             Button(onClick = vm::reload, text = stringResource(R.string.retry))
                         }
-                        aboutVisible -> AboutScreen(onBack = { aboutVisible = false })
-                        tab == 0 -> AssetsScreen(state.data, month, hidden, busy, { vm.moveMonth(-1) }, { vm.moveMonth(1) },
-                            vm::currentMonth, vm::openAssets, { deleteAsset = true }, currentMonth = vm.thisMonth,
+                        tab == 0 -> AssetsScreen(state.data, month, hidden, busy,
+                            vm::openAssets, { deleteAsset = it }, currentMonth = vm.thisMonth,
                             onMonthSelected = vm::selectMonth)
-                        tab == 1 -> IncomeScreen(state.data, hidden, busy, { vm.openIncome() }, vm::openSmsInput,
-                            { vm.openIncome(it) }, { deleteIncome = it })
+                        // 收入页与资产页共用同一个 selectedMonth，切 Tab 时月份保持一致。
+                        tab == 1 -> IncomeScreen(state.data, month, vm.thisMonth, hidden, busy,
+                            onMonthSelected = vm::selectMonth,
+                            onAdd = { vm.openIncome() }, onParse = vm::openSmsInput,
+                            onEdit = { vm.openIncome(it) }, onDelete = { deleteIncome = it })
                         else -> SettingsScreen(state.data, hidden, busy || transferBusy, smsPermission, transferEnabled = vm.transferAvailable && !hidden && state.storageError == null,
                             transferProgress = transferProgress,
                             onSmsChange = { enabled ->
@@ -159,6 +160,8 @@ fun BookApp(vm: BookViewModel) {
                             onPermissionSettings = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                                 Uri.fromParts("package", context.packageName, null))) },
                             onAddChannel = { vm.openChannel() }, onRename = { vm.openChannel(it) }, onDelete = { deleteChannel = it },
+                            // 列表顺序即登记顺序；默认勾选项由上一次成功登记决定，设置页不再单独维护。
+                            onReorder = vm::commitChannelOrder,
                             onExportJson = { vm.startExport(ExportFormat.JSON) },
                             onExportCsv = { vm.startExport(ExportFormat.CSV) },
                             onImport = vm::requestImport, onHideOnStartup = vm::setHideOnStartup,
@@ -174,8 +177,10 @@ fun BookApp(vm: BookViewModel) {
             incomeDraft?.let { IncomeEditor(it, vm, busy, editingExisting = state.data.incomes.any { income -> income.id == it.id }) }
             channelDraft?.let { ChannelEditor(it, vm, busy) }
             smsText?.let { SmsInputEditor(it, vm, busy) }
-            if (deleteAsset) ConfirmDialog(stringResource(R.string.delete_record_title), stringResource(R.string.delete_asset_hint), busy,
-                { deleteAsset = false }, { deleteAsset = false; vm.deleteAsset() })
+            deleteAsset?.let { targetMonth ->
+                ConfirmDialog(stringResource(R.string.delete_record_title), stringResource(R.string.delete_asset_hint), busy,
+                    { deleteAsset = null }, { deleteAsset = null; vm.deleteAsset(targetMonth) })
+            }
             deleteIncome?.let { income -> ConfirmDialog(stringResource(R.string.delete_record_title), stringResource(R.string.delete_income_hint), busy,
                 { deleteIncome = null }, { deleteIncome = null; vm.deleteIncome(income.id) }) }
             deleteChannel?.let { channel -> ConfirmDialog(stringResource(R.string.delete_channel_title), stringResource(R.string.delete_channel_hint), busy,
@@ -204,6 +209,8 @@ fun BookApp(vm: BookViewModel) {
                     permissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
                 }) { BookText(stringResource(R.string.sms_permission_explanation)) }
         }
+        // 关于页以底部弹层显示，设置页和底部导航保持可见，下滑或点击遮罩即可关闭。
+        if (aboutVisible) AboutScreen(onDismiss = { aboutVisible = false })
     }
 }
 

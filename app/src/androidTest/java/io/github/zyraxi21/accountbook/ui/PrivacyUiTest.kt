@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
@@ -43,6 +44,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.Clock
 import java.time.Instant
+import java.time.YearMonth
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
@@ -100,10 +102,13 @@ class PrivacyUiTest {
 
     @Test fun swipesNavigateMonthsAndCurrentMonthCannotAdvance() {
         launchBook()
-        compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsNotEnabled()
+        compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(vm.thisMonth, vm.selectedMonth.value) }
         compose.onAllNodesWithContentDescription(context.getString(R.string.current_month)).assertCountEquals(0)
         val label = context.getString(R.string.month_format, vm.thisMonth.year, vm.thisMonth.monthValue)
         val originalX = compose.onNodeWithText(label).fetchSemanticsNode().positionInRoot.x
+        val statement = compose.onNodeWithTag("statement_${vm.thisMonth}")
+        val originalBodyX = statement.fetchSemanticsNode().positionInRoot.x
         compose.mainClock.autoAdvance = false
         try {
             compose.onNodeWithTag("month_statement_pager").performTouchInput {
@@ -113,8 +118,12 @@ class PrivacyUiTest {
             }
             compose.mainClock.advanceTimeByFrame()
             val draggedX = compose.onNodeWithText(label).fetchSemanticsNode().positionInRoot.x
-            assertTrue("页面应在手指未松开时跟随拖动", draggedX > originalX + 20f)
-            assertEquals("拖动途中不应改变登记目标月份", vm.thisMonth, vm.selectedMonth.value)
+            assertEquals("月份栏应始终保持原位", originalX, draggedX, 0.1f)
+            assertTrue("账单应在手指未松开时跟随拖动", statement.fetchSemanticsNode().positionInRoot.x > originalBodyX + 20f)
+            compose.onNodeWithContentDescription(context.getString(R.string.previous_month)).assertIsEnabled()
+            compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsEnabled()
+            compose.onNodeWithTag("register_assets_${vm.thisMonth}").assertIsEnabled()
+            assertEquals("拖动结束后才同步停靠月份", vm.thisMonth, vm.selectedMonth.value)
             compose.onNodeWithTag("month_statement_pager").performTouchInput { advanceEventTime(300); up() }
         } finally { compose.mainClock.autoAdvance = true }
         compose.waitForIdle()
@@ -127,6 +136,83 @@ class PrivacyUiTest {
         compose.runOnIdle { assertEquals(vm.thisMonth, vm.selectedMonth.value) }
         compose.onAllNodesWithContentDescription(context.getString(R.string.current_month)).assertCountEquals(0)
         capturePreview("assets-light")
+    }
+
+    @Test fun eachVisiblePageCanOpenItsOwnEditorDuringDragging() {
+        launchBook(hasSnapshot = false)
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        val current = vm.thisMonth
+        val previous = current.minusMonths(1)
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.onNodeWithTag("month_statement_pager").performTouchInput {
+                down(center)
+                moveBy(Offset(width * 0.15f, 0f))
+                moveBy(Offset(width * 0.25f, 0f))
+            }
+            compose.mainClock.advanceTimeByFrame()
+            for (pageMonth in listOf(previous, current)) {
+                compose.onNodeWithTag("register_assets_$pageMonth").assertIsEnabled()
+                    .performSemanticsAction(SemanticsActions.OnClick) { it() }
+                compose.runOnIdle {
+                    assertEquals(pageMonth, YearMonth.from(vm.assetDraft.value!!.registeredAt.atZone(BOOK_ZONE)))
+                    vm.closeAssetDraft()
+                }
+            }
+            compose.onNodeWithTag("month_statement_pager").performTouchInput { advanceEventTime(300); up() }
+        } finally { compose.mainClock.autoAdvance = true }
+        compose.waitForIdle()
+    }
+
+    @Test fun monthButtonsAccumulateAndCanReverseOrReturnWhileAnimating() {
+        launchBook(hasSnapshot = false)
+        compose.mainClock.autoAdvance = false
+        try {
+            val previous = compose.onNodeWithContentDescription(context.getString(R.string.previous_month))
+            previous.performClick()
+            compose.mainClock.advanceTimeBy(48)
+            previous.assertIsEnabled().performClick()
+            previous.performClick()
+            compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsEnabled().performClick()
+        } finally { compose.mainClock.autoAdvance = true }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(vm.thisMonth.minusMonths(2), vm.selectedMonth.value) }
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.onNodeWithContentDescription(context.getString(R.string.previous_month)).performClick()
+            compose.mainClock.advanceTimeBy(64)
+            compose.onNodeWithContentDescription(context.getString(R.string.current_month)).assertIsEnabled().performClick()
+        } finally { compose.mainClock.autoAdvance = true }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(vm.thisMonth, vm.selectedMonth.value) }
+    }
+
+    @Test fun deletionConfirmationKeepsOriginalMonthAfterNavigation() {
+        val deleted = mutableListOf<YearMonth>()
+        launchBook(onDeleteAsset = { deleted.add(it) })
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        val original = vm.thisMonth
+        compose.onNodeWithTag("statement_$original").performScrollToNode(hasTestTag("delete_assets_$original"))
+        compose.onNodeWithTag("delete_assets_$original").performClick()
+        compose.runOnIdle { vm.selectMonth(original.minusMonths(1)) }
+        compose.onNode(hasText(context.getString(R.string.delete)) and hasAnyAncestor(isDialog())).performClick()
+        compose.runOnIdle { assertEquals(listOf(original), deleted) }
+    }
+
+    @Test fun backgroundMaskRemovesSemanticsAndRestoresEditorWhenAutomaticHideIsOff() {
+        launchBook()
+        compose.runOnIdle {
+            vm.setHideOnStartup(false)
+            vm.togglePrivacy()
+            vm.openIncome()
+            vm.updateIncome(title = "后台草稿项目", amount = "123.45")
+        }
+        compose.onNode(hasSetTextAction() and hasText("后台草稿项目")).assertExists()
+        compose.runOnIdle { vm.obscureInBackground(); vm.onBackgroundStopped() }
+        compose.onAllNodesWithText("后台草稿项目", useUnmergedTree = true).assertCountEquals(0)
+        compose.onAllNodesWithText("隐私银行", useUnmergedTree = true).assertCountEquals(0)
+        compose.runOnIdle { vm.onForeground() }
+        compose.onNode(hasSetTextAction() and hasText("后台草稿项目")).assertExists()
     }
 
     @Test fun systemHintUsesSnackbarAndPrivacyControlHasNoVisibleTextLabel() {
@@ -182,6 +268,81 @@ class PrivacyUiTest {
         assertEquals(1, registry.intents.size)
     }
 
+    @Test fun tappingTheMonthOpensAPickerAndJumpsStraightToTheChosenMonth() {
+        launchBook(hasSnapshot = false)
+        val target = vm.thisMonth.minusMonths(5)
+        compose.onNodeWithTag("month_picker_button").performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.month_format, target.year, target.monthValue)).performClick()
+        compose.runOnIdle { assertEquals(target, vm.selectedMonth.value) }
+        compose.onNodeWithText(context.getString(R.string.month_format, target.year, target.monthValue)).assertExists()
+    }
+
+    @Test fun monthPickerCannotReachFutureMonths() {
+        launchBook(hasSnapshot = false)
+        compose.onNodeWithTag("month_picker_button").performClick()
+        val future = vm.thisMonth.plusMonths(1)
+        // 未来月份可能落在下一年，届时年份步进本身就该被禁用。
+        if (future.year != vm.thisMonth.year) {
+            compose.onNodeWithContentDescription(context.getString(R.string.next_year)).assertIsNotEnabled()
+        } else {
+            compose.onNodeWithContentDescription(context.getString(R.string.month_format, future.year, future.monthValue))
+                .assertExists().performClick()
+            compose.runOnIdle { assertEquals(vm.thisMonth, vm.selectedMonth.value) }
+        }
+    }
+
+    @Test fun incomeScreenOnlyListsTheSelectedMonth() {
+        val previous = YearMonth.from(now.atZone(BOOK_ZONE)).minusMonths(1)
+        launchBook(incomes = listOf(
+            Income("current", "本月收入项目", Money(10000), now),
+            Income("previous", "上月收入项目", Money(20000), previous.atDay(15).atStartOfDay(BOOK_ZONE).toInstant()),
+        ))
+        compose.onNodeWithText(context.getString(R.string.tab_income)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithText("本月收入项目").assertExists()
+        compose.onAllNodesWithText("上月收入项目", useUnmergedTree = true).assertCountEquals(0)
+        compose.onNodeWithContentDescription(context.getString(R.string.previous_month)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("上月收入项目").assertExists()
+        compose.onAllNodesWithText("本月收入项目", useUnmergedTree = true).assertCountEquals(0)
+    }
+
+    @Test fun swipingTheIncomeListMovesBetweenMonths() {
+        launchBook(hasSnapshot = false)
+        compose.onNodeWithText(context.getString(R.string.tab_income)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithTag("income_month_pager").performTouchInput { swipeRight() }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(vm.thisMonth.minusMonths(1), vm.selectedMonth.value) }
+        // 本月不能再往后，滑回去应回到本月。
+        compose.onNodeWithTag("income_month_pager").performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(vm.thisMonth, vm.selectedMonth.value) }
+    }
+
+    @Test fun draggingTheChannelHandleReordersChannels() {
+        launchBook(hasSnapshot = false, channels = listOf(
+            Channel("a", "渠道甲", true, 0), Channel("b", "渠道乙", true, 1), Channel("c", "渠道丙", true, 2)))
+        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("channel_handle_a"))
+        compose.onNodeWithTag("channel_handle_a").performTouchInput {
+            down(center)
+            // 长按检测需要超过系统长按时长的静止时间才会开始拖动。
+            advanceEventTime(1_000)
+            moveBy(Offset(0f, 60f))
+            moveBy(Offset(0f, 120f))
+            moveBy(Offset(0f, 200f))
+            up()
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            val order = vm.state.value.data.activeChannels.map { it.id }
+            assertEquals(setOf("a", "b", "c"), order.toSet())
+            assertTrue(order.indexOf("a") > 0)
+        }
+    }
+
     private fun closeNativeDatePicker() {
         val description = context.getString(com.microsoft.fluentui.calendar.R.string.date_time_picker_accessibility_close_dialog_button)
         onView(withContentDescription(description)).perform(object : ViewAction {
@@ -219,14 +380,20 @@ class PrivacyUiTest {
         }
     }
 
-    private fun launchBook(hasSnapshot: Boolean = true, registry: ActivityResultRegistryOwner? = null, enableTransfer: Boolean = false) {
+    private fun launchBook(hasSnapshot: Boolean = true, registry: ActivityResultRegistryOwner? = null, enableTransfer: Boolean = false,
+                           onDeleteAsset: ((YearMonth) -> Unit)? = null,
+                           channels: List<Channel> = listOf(Channel("bank", "隐私银行", true, 0)),
+                           incomes: List<Income> = listOf(Income("salary", "隐私收入项目", Money(10000), now))) {
         compose.runOnIdle {
             // 仅测试活动保持亮屏，避免厂商在回归过程中冻结测试进程。
             compose.activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            val repository = ReadOnlyBookRepository(BookData(channels = listOf(Channel("bank", "隐私银行", true, 0)),
+            val readOnly = ReadOnlyBookRepository(BookData(channels = channels,
                 snapshots = if (hasSnapshot) listOf(MonthlyAssetSnapshot(now, listOf(ChannelBalance("bank", "隐私银行", Money(123456))), Money(10000))) else emptyList(),
-                incomes = listOf(Income("salary", "隐私收入项目", Money(10000), now)),
-                settings = BookSettings(rememberedChannelIds = listOf("bank"))))
+                incomes = incomes,
+                settings = BookSettings(defaultChannelIds = listOf("bank"))))
+            val repository = if (onDeleteAsset == null) readOnly else object : BookRepository by readOnly {
+                override suspend fun deleteAsset(month: YearMonth) = onDeleteAsset(month)
+            }
             vm = BookViewModel(repository, clock = Clock.fixed(now, BOOK_ZONE), transfer = if (enableTransfer) BookTransfer(context, repository) else null)
             store.put("privacy", vm)
         }

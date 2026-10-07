@@ -8,6 +8,10 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
@@ -27,10 +31,7 @@ import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
 import com.microsoft.fluentui.tokenized.controls.Button
 import com.microsoft.fluentui.tokenized.controls.CheckBox
 import com.microsoft.fluentui.tokenized.controls.FloatingActionButton
-import com.microsoft.fluentui.icons.ActionBarIcons
-import com.microsoft.fluentui.icons.SearchBarIcons
-import com.microsoft.fluentui.icons.actionbaricons.Arrowright
-import com.microsoft.fluentui.icons.searchbaricons.Arrowback
+import com.microsoft.fluentui.tokenized.controls.TextField
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.BookData
 import io.github.zyraxi21.accountbook.domain.Money
@@ -39,46 +40,75 @@ import io.github.zyraxi21.accountbook.ui.BookViewModel
 import io.github.zyraxi21.accountbook.ui.components.*
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 import java.time.YearMonth
-import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.flow.distinctUntilChanged
-
-// Pager 只组合可见月份；末页固定为本月，前方留足索引供持续回溯，不创建未来月份页面。
-private const val CURRENT_MONTH_PAGE = Int.MAX_VALUE / 2
+import kotlinx.coroutines.flow.filterNotNull
 
 @Composable
-fun AssetsScreen(data: BookData, month: YearMonth, hidden: Boolean, busy: Boolean, onPrevious: () -> Unit,
-                 onNext: () -> Unit, onCurrent: () -> Unit, onRegister: () -> Unit, onDelete: () -> Unit,
+fun AssetsScreen(data: BookData, month: YearMonth, hidden: Boolean, busy: Boolean,
+                 onRegister: (YearMonth) -> Unit, onDelete: (YearMonth) -> Unit,
                  currentMonth: YearMonth = YearMonth.now(io.github.zyraxi21.accountbook.domain.BOOK_ZONE),
                  onMonthSelected: (YearMonth) -> Unit) {
-    fun pageFor(value: YearMonth): Int = CURRENT_MONTH_PAGE -
-        ChronoUnit.MONTHS.between(value, currentMonth).coerceIn(0, CURRENT_MONTH_PAGE.toLong()).toInt()
-    val pager = rememberPagerState(initialPage = pageFor(month)) { CURRENT_MONTH_PAGE + 1 }
+    val pager = rememberPagerState(initialPage = pageOf(month, currentMonth)) { CURRENT_MONTH_PAGE + 1 }
     val selected = rememberUpdatedState(month)
     val selectMonth = rememberUpdatedState(onMonthSelected)
+    var request by remember { mutableStateOf<MonthPageRequest?>(null) }
+    var pickerVisible by remember { mutableStateOf(false) }
+    var reportedPage by remember { mutableIntStateOf(pageOf(month, currentMonth)) }
+    val displayedMonth = monthAtPage(pager.currentPage, currentMonth)
+
+    fun navigateTo(page: Int) {
+        request = MonthPageRequest(page.coerceIn(0, CURRENT_MONTH_PAGE))
+    }
+
+    // 保存资产或其他外部操作选中月份时，同样使用动画定位。自身停靠回调不触发第二次翻页。
     LaunchedEffect(month, currentMonth) {
-        val target = pageFor(month)
-        if (pager.settledPage != target) {
-            pager.animateScrollToPage(target, animationSpec = tween(250, easing = FastOutSlowInEasing))
+        val target = pageOf(month, currentMonth)
+        if (target != reportedPage) navigateTo(target)
+    }
+    LaunchedEffect(request) {
+        val active = request ?: return@LaunchedEffect
+        try {
+            pager.animateScrollToPage(active.page, animationSpec = tween(250, easing = FastOutSlowInEasing))
+        } finally {
+            if (request === active) request = null
         }
     }
     LaunchedEffect(pager, currentMonth) {
-        snapshotFlow { pager.settledPage }.distinctUntilChanged().collect { page ->
-            val settled = currentMonth.minusMonths((CURRENT_MONTH_PAGE - page).toLong())
-            // 滑动结束后才改变编辑目标，避免拖动途中登记到相邻月份。
+        snapshotFlow { if (!pager.isScrollInProgress && request == null) pager.settledPage else null }
+            .filterNotNull().distinctUntilChanged().collect { page ->
+            reportedPage = page
+            val settled = monthAtPage(page, currentMonth)
+            // 手势和按钮动画共用停靠结果；每页的账务操作独立绑定其月份。
             if (settled != selected.value) selectMonth.value(settled)
         }
     }
     Box(Modifier.fillMaxSize()) {
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize().clipToBounds().testTag("month_statement_pager"),
-            key = { currentMonth.minusMonths((CURRENT_MONTH_PAGE - it).toLong()).toString() },
-            verticalAlignment = Alignment.Top) { page ->
-            val pageMonth = currentMonth.minusMonths((CURRENT_MONTH_PAGE - page).toLong())
-            MonthlyStatement(data, pageMonth, currentMonth, hidden, busy || pager.isScrollInProgress || pageMonth != month,
-                onPrevious, onNext, onRegister, onDelete)
+        Column(Modifier.fillMaxSize()) {
+            // 静止区自行保留与滚动区的间距，列表不再自带顶部内边距，滚动时内容不会贴到月份行。
+            Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 20.dp).testTag("month_header"),
+                verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                SectionHeading(stringResource(R.string.statement_title), stringResource(R.string.statement_subtitle))
+                MonthNavigation(displayedMonth,
+                    onPrevious = { navigateTo((request?.page ?: pager.currentPage) - 1) },
+                    onNext = { navigateTo((request?.page ?: pager.currentPage) + 1) },
+                    onPickMonth = { pickerVisible = true })
+            }
+            if (pickerVisible) {
+                MonthPickerDialog(selected = displayedMonth, currentMonth = currentMonth,
+                    onSelect = { picked -> pickerVisible = false; navigateTo(pageOf(picked, currentMonth)) },
+                    onDismiss = { pickerVisible = false })
+            }
+            HorizontalPager(state = pager, modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds().testTag("month_statement_pager"),
+                key = { monthAtPage(it, currentMonth).toString() },
+                verticalAlignment = Alignment.Top) { page ->
+                val pageMonth = monthAtPage(page, currentMonth)
+                MonthlyStatement(data, pageMonth, currentMonth, hidden, busy,
+                    onRegister = { onRegister(pageMonth) }, onDelete = { onDelete(pageMonth) })
+            }
         }
-        if (month != currentMonth) {
-            FloatingActionButton(onClick = onCurrent, text = stringResource(R.string.current_month),
-                icon = ImageVector.vectorResource(R.drawable.ic_current_month), enabled = !pager.isScrollInProgress,
+        if (displayedMonth != currentMonth) {
+            FloatingActionButton(onClick = { navigateTo(CURRENT_MONTH_PAGE) }, text = stringResource(R.string.current_month),
+                icon = ImageVector.vectorResource(R.drawable.ic_current_month),
                 modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp))
         }
     }
@@ -86,30 +116,18 @@ fun AssetsScreen(data: BookData, month: YearMonth, hidden: Boolean, busy: Boolea
 
 @Composable
 private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: YearMonth, hidden: Boolean, busy: Boolean,
-                             onPrevious: () -> Unit, onNext: () -> Unit, onRegister: () -> Unit, onDelete: () -> Unit) {
+                             onRegister: () -> Unit, onDelete: () -> Unit) {
     val palette = LocalBookPalette.current
     val result = remember(data, month) { runCatching { data.summary(month) } }
     val snapshot = data.snapshot(month)
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = if (month != currentMonth) 104.dp else 20.dp),
+    LazyColumn(Modifier.fillMaxSize().testTag("statement_$month"), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 0.dp, bottom = if (month != currentMonth) 104.dp else 20.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            item { SectionHeading(stringResource(R.string.statement_title), stringResource(R.string.statement_subtitle)) }
-            item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onPrevious, style = ButtonStyle.OutlinedButton, icon = SearchBarIcons.Arrowback,
-                        contentDescription = stringResource(R.string.previous_month), enabled = !busy,
-                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp))
-                    BookText(stringResource(R.string.month_format, month.year, month.monthValue), Modifier.weight(1f), 20.sp, FontWeight.Medium)
-                    Button(onClick = onNext, style = ButtonStyle.OutlinedButton, icon = ActionBarIcons.Arrowright,
-                        contentDescription = stringResource(R.string.next_month), enabled = !busy && month < currentMonth,
-                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp))
-                }
-            }
             if (snapshot == null) {
                 item { LedgerCard { SectionHeading(stringResource(R.string.no_assets_title), stringResource(R.string.no_assets_hint)) } }
             } else {
                 item {
                     LedgerCard {
-                        BookText(stringResource(R.string.month_short_format, month.year, month.monthValue), size = 14.sp, color = palette.brand, numeric = true)
+                        BookText(stringResource(R.string.month_short_format, month.year, month.monthValue), size = 14.sp, color = palette.brand)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             BookText(stringResource(R.string.asset_channel), size = 13.sp, color = palette.secondary)
                             BookText(stringResource(R.string.asset_amount), size = 13.sp, color = palette.secondary)
@@ -131,7 +149,7 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
             }
             item {
                 Button(onClick = onRegister, text = stringResource(if (snapshot == null) R.string.register_assets else R.string.edit_assets),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = !busy)
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("register_assets_$month"), enabled = !busy)
             }
             item {
                 LedgerCard {
@@ -146,7 +164,8 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
                 }
             }
             if (snapshot != null) {
-                item { Button(onClick = onDelete, style = ButtonStyle.OutlinedButton, text = stringResource(R.string.delete), enabled = !busy && !hidden) }
+                item { Button(onClick = onDelete, style = ButtonStyle.OutlinedButton, text = stringResource(R.string.delete),
+                    modifier = Modifier.testTag("delete_assets_$month"), enabled = !busy && !hidden) }
             }
     }
 }
@@ -187,6 +206,15 @@ fun AssetEditor(draft: AssetDraft, vm: BookViewModel, busy: Boolean) {
                 if (balance.selected) AmountField(balance.amount, { vm.updateBalance(balance.channelId, amount = it) },
                     stringResource(R.string.channel_amount_label, balance.name))
             }
+        }
+        // 登记时随手新增渠道：立即创建并自动勾选，不必先去设置页。
+        LedgerDivider()
+        BookText(stringResource(R.string.channel_new_label), size = 14.sp, color = LocalBookPalette.current.secondary)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextField(draft.newChannelName, vm::updateNewChannelName, Modifier.weight(1f),
+                label = stringResource(R.string.channel_name), hintText = stringResource(R.string.channel_name_hint))
+            Button(onClick = vm::addChannelToDraft, text = stringResource(R.string.channel_add_button),
+                modifier = Modifier.heightIn(min = 48.dp), enabled = !busy && draft.newChannelName.isNotBlank())
         }
         AmountField(draft.liability, vm::updateLiability, stringResource(R.string.liability_amount))
     }

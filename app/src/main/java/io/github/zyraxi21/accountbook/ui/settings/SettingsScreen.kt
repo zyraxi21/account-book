@@ -34,6 +34,7 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
                    transferProgress: Int?,
                    onSmsChange: (Boolean) -> Unit, onPermissionSettings: () -> Unit, onAddChannel: () -> Unit,
                    onRename: (Channel) -> Unit, onDelete: (Channel) -> Unit,
+                   onReorder: (List<String>) -> Unit,
                    onExportJson: () -> Unit, onExportCsv: () -> Unit, onImport: () -> Unit,
                    onHideOnStartup: (Boolean) -> Unit, onAllowScreenshots: (Boolean) -> Unit, onAbout: () -> Unit) {
     val palette = LocalBookPalette.current
@@ -52,13 +53,8 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
         item { LedgerCard {
             SectionHeading(stringResource(R.string.channel_management), stringResource(R.string.channel_management_hint))
             if (data.activeChannels.isEmpty()) BookText(stringResource(R.string.channel_none), size = 14.sp)
-            data.activeChannels.forEach { channel ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PrivateText(channel.name, hidden, Modifier.weight(1f))
-                    Button(onClick = { onRename(channel) }, text = stringResource(R.string.edit), style = ButtonStyle.OutlinedButton, enabled = !hidden && !busy)
-                    Button(onClick = { onDelete(channel) }, text = stringResource(R.string.delete), style = ButtonStyle.OutlinedButton, enabled = !hidden && !busy)
-                }
-            }
+            ChannelList(data.activeChannels, hidden, busy,
+                onReorder = onReorder, onRename = onRename, onDelete = onDelete)
             Button(onClick = onAddChannel, text = stringResource(R.string.add_channel), style = ButtonStyle.OutlinedButton, enabled = !busy,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
         } }

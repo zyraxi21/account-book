@@ -36,6 +36,8 @@ interface BookDao {
 
     @Insert suspend fun insertChannels(channels: List<ChannelEntity>)
     @Upsert suspend fun saveChannel(channel: ChannelEntity)
+    /** 拖动排序一次性写回 position。 */
+    @Upsert suspend fun saveChannels(channels: List<ChannelEntity>)
     @Upsert suspend fun saveSnapshot(snapshot: MonthlyAssetEntity)
     @Insert suspend fun insertBalances(balances: List<ChannelBalanceEntity>)
     @Upsert suspend fun saveIncome(income: IncomeEntity)

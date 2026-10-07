@@ -41,7 +41,8 @@ data class Income(
 )
 data class BookSettings(
     val smsAutoImportEnabled: Boolean = false,
-    val rememberedChannelIds: List<String> = emptyList(),
+    /** 下次登记的默认勾选渠道，顺序即登记顺序；仅由设置页和上一次成功登记写入。 */
+    val defaultChannelIds: List<String> = emptyList(),
     /** 最近一次成功导出的时间，仅用于在设置页说明数据去向。 */
     val exportedAt: Instant? = null,
     val hideOnStartup: Boolean = true,
@@ -57,12 +58,17 @@ data class BookData(
     val cumulativeIncome: Money get() = Money.sum(incomes.map { it.amount })
     fun snapshot(month: YearMonth) = snapshots.firstOrNull { it.month == month }
 
+    /** 指定月份的收入，按发生时间倒序；资产页与本页共用同一套月份口径。 */
+    fun incomesIn(month: YearMonth): List<Income> = incomes
+        .filter { YearMonth.from(it.receivedAt.atZone(BOOK_ZONE)) == month }
+        .sortedByDescending { it.receivedAt }
+
+    fun incomeIn(month: YearMonth): Money = Money.sum(incomesIn(month).map { it.amount })
+
     fun summary(month: YearMonth): MonthlySummary {
         val current = snapshot(month)
         val previous = snapshot(month.minusMonths(1))
-        val income = Money.sum(incomes.filter {
-            YearMonth.from(it.receivedAt.atZone(BOOK_ZONE)) == month
-        }.map { it.amount })
+        val income = incomeIn(month)
         return MonthlySummary(
             current, income,
             if (current != null && previous != null) current.total - previous.total else null,
@@ -80,5 +86,5 @@ data class MonthlySummary(
 /** 只有成功提交的渠道选择才作为下次登记的模板。 */
 fun BookData.nextRegistrationChannels(): List<Channel> {
     val active = activeChannels.associateBy { it.id }
-    return settings.rememberedChannelIds.mapNotNull(active::get)
+    return settings.defaultChannelIds.mapNotNull(active::get)
 }

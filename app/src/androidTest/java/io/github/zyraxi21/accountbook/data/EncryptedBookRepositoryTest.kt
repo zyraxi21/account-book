@@ -70,7 +70,7 @@ class EncryptedBookRepositoryTest {
         repository.deleteChannel(alipay.id)
         database.close(); reopen()
         val restored = book()
-        assertEquals(listOf(bank.id), restored.settings.rememberedChannelIds)
+        assertEquals(listOf(bank.id), restored.settings.defaultChannelIds)
         assertEquals(listOf("支付宝", "银行"), restored.snapshots.single().balances.map { it.channelName })
         assertEquals("历史名称验证", restored.activeChannels.first { it.id == bank.id }.name)
         assertFalse(restored.activeChannels.any { it.id == alipay.id })
@@ -117,7 +117,7 @@ class EncryptedBookRepositoryTest {
         val data = book()
         assertEquals(1, data.incomes.size)
         assertEquals(Money.parse("50"), data.snapshots.single().total)
-        assertEquals(listOf(channel.id), data.settings.rememberedChannelIds)
+        assertEquals(listOf(channel.id), data.settings.defaultChannelIds)
     }
 
     @Test fun failedAssetUpdateRollsBackChannelMemory() = runBlocking {
@@ -362,11 +362,59 @@ class EncryptedBookRepositoryTest {
             assertEquals(original.channels, migrated.channels)
             assertEquals(original.snapshots, migrated.snapshots)
             assertEquals(original.incomes, migrated.incomes)
-            assertEquals(original.settings.rememberedChannelIds, migrated.settings.rememberedChannelIds)
+            assertEquals(original.settings.defaultChannelIds, migrated.settings.defaultChannelIds)
             assertTrue(migrated.settings.hideOnStartup)
             assertFalse(migrated.settings.allowScreenshots)
             assertTrue(migrated.settings.smsAutoImportEnabled)
         }
+    }
+
+    @Test fun addChannelReturnsTheCreatedChannelForImmediateSelection() = runBlocking {
+        val created = repository.addChannel("  招商银行  ")
+        assertEquals("招商银行", created.name)
+        assertTrue(created.active)
+        assertEquals(3, created.position)
+        assertEquals(created, book().channels.first { it.id == created.id })
+    }
+
+    @Test fun reorderChangesRegistrationOrderButNotHistoricalBalances() = runBlocking {
+        val initial = book()
+        val bank = initial.activeChannels[0]
+        val alipay = initial.activeChannels[1]
+        repository.saveAsset(MonthlyAssetSnapshot(now, listOf(
+            ChannelBalance(bank.id, bank.name, Money(100)), ChannelBalance(alipay.id, alipay.name, Money(200))), Money.ZERO))
+        val historical = book().snapshots.single()
+        repository.reorderChannels(listOf(alipay.id, bank.id))
+        assertEquals(listOf(alipay.id, bank.id), book().activeChannels.take(2).map { it.id })
+        // 回看旧月份时渠道顺序保持登记当时的样子。
+        assertEquals(historical, book().snapshots.single())
+        database.close(); reopen()
+        assertEquals(listOf(alipay.id, bank.id), book().activeChannels.take(2).map { it.id })
+    }
+
+    @Test fun reorderRejectsUnknownOrRepeatedChannelsWithoutChangingAnything() = runBlocking {
+        val initial = book()
+        val bank = initial.activeChannels[0]
+        for (invalid in listOf(listOf("missing-channel"), listOf(bank.id, bank.id))) {
+            try {
+                repository.reorderChannels(invalid)
+                fail("非法排序应被拒绝")
+            } catch (error: BookException) { assertEquals(BookError.CHANNEL_UNAVAILABLE, error.error) }
+        }
+        assertEquals(initial, book())
+    }
+
+    @Test fun registrationSelectionBecomesTheNextDefaultAndDropsDeletedChannels() = runBlocking {
+        val alipay = book().activeChannels[1]
+        repository.saveAsset(MonthlyAssetSnapshot(now, listOf(ChannelBalance(alipay.id, alipay.name, Money(200))), Money.ZERO))
+        assertEquals(listOf(alipay.id), book().settings.defaultChannelIds)
+        assertEquals(listOf(alipay.id), book().nextRegistrationChannels().map { it.id })
+        // 删除渠道后，默认列表不再包含它。
+        repository.deleteChannel(alipay.id)
+        assertEquals(emptyList<String>(), book().settings.defaultChannelIds)
+        assertEquals(emptyList<Channel>(), book().nextRegistrationChannels())
+        database.close(); reopen()
+        assertEquals(emptyList<String>(), book().settings.defaultChannelIds)
     }
 
     private fun importedBook(): BookData {

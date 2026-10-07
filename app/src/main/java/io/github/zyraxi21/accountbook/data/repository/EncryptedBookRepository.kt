@@ -93,10 +93,37 @@ class EncryptedBookRepository(
 
     override suspend fun deleteIncome(id: String) = write { it.deleteIncome(id) }
 
-    override suspend fun addChannel(name: String) = write { dao ->
+    override suspend fun addChannel(name: String): Channel = write { dao ->
         val channels = dao.channels()
         val cleanName = validateChannelName(name, channels)
-        dao.saveChannel(ChannelEntity(UUID.randomUUID().toString(), cleanName, position = (channels.maxOfOrNull { it.position } ?: -1) + 1))
+        val entity = ChannelEntity(UUID.randomUUID().toString(), cleanName, position = (channels.maxOfOrNull { it.position } ?: -1) + 1)
+        dao.saveChannel(entity)
+        Channel(entity.id, entity.name, entity.active, entity.position)
+    }
+
+    /**
+     * 拖动排序只改启用渠道的登记顺序（channels.position）。
+     * 历史资产表的余额顺序存在 channel_balances.position，故意不改写，避免回看旧月份时顺序跳动。
+     */
+    override suspend fun reorderChannels(orderedIds: List<String>) = write { dao ->
+        val active = dao.channels().filter { it.active }
+        val byId = active.associateBy { it.id }
+        if (orderedIds.size != orderedIds.distinct().size || !byId.keys.containsAll(orderedIds)) {
+            throw BookException(BookError.CHANNEL_UNAVAILABLE)
+        }
+        val requested = orderedIds.toSet()
+        val ordered = orderedIds.mapNotNull(byId::get) + active.filterNot { it.id in requested }
+        dao.saveChannels(ordered.mapIndexed { index, channel -> channel.copy(position = index) })
+        reorderRemembered(dao, ordered.map { it.id })
+    }
+
+    /** 只调整默认渠道的相对顺序，成员集合保持原样。 */
+    private suspend fun reorderRemembered(dao: BookDao, channelOrder: List<String>) {
+        val members = dao.rememberedChannels().map { it.channelId }.toSet()
+        val ordered = channelOrder.filter { it in members }
+        if (ordered.isEmpty()) return
+        dao.clearRememberedChannels()
+        dao.insertRememberedChannels(ordered.mapIndexed { index, id -> RememberedChannelEntity(id, index) })
     }
 
     override suspend fun renameChannel(id: String, name: String) = write { dao ->
@@ -153,7 +180,7 @@ class EncryptedBookRepository(
         pending.incomes.forEach { dao.saveIncome(it.toEntity()) }
         if (mode == ImportMode.REPLACE) {
             val activeIds = pending.activeChannels.map { it.id }.toSet()
-            val remembered = existing.settings.rememberedChannelIds.filter { it in activeIds }.ifEmpty {
+            val remembered = existing.settings.defaultChannelIds.filter { it in activeIds }.ifEmpty {
                 pending.activeChannels.sortedBy { it.position }.map { it.id }
             }
             dao.insertRememberedChannels(remembered.mapIndexed { index, id -> RememberedChannelEntity(id, index) })
@@ -193,7 +220,7 @@ class EncryptedBookRepository(
         incomes = dao.incomes().map { Income(it.id, it.title, Money(it.amountFen), Instant.ofEpochMilli(it.receivedAtMillis), IncomeSource.valueOf(it.source)) },
         settings = dao.settings().let { settings -> BookSettings(
             smsAutoImportEnabled = settings?.smsAutoImportEnabled == true,
-            rememberedChannelIds = dao.rememberedChannels().map { it.channelId },
+            defaultChannelIds = dao.rememberedChannels().map { it.channelId },
             exportedAt = settings?.lastExportAtMillis?.let(Instant::ofEpochMilli),
             hideOnStartup = settings?.hideOnStartup ?: true,
             allowScreenshots = settings?.allowScreenshots ?: false,

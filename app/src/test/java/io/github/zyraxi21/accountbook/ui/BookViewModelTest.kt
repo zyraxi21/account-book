@@ -1,10 +1,14 @@
 package io.github.zyraxi21.accountbook.ui
 
 import androidx.lifecycle.ViewModelStore
+import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.*
 import io.github.zyraxi21.accountbook.testing.ReadOnlyBookRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -26,7 +30,7 @@ class BookViewModelTest {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         vm = BookViewModel(ReadOnlyBookRepository(BookData(
             channels = listOf(Channel("bank", "银行", true, 0), Channel("alipay", "支付宝", true, 1)),
-            settings = BookSettings(rememberedChannelIds = listOf("alipay", "bank")),
+            settings = BookSettings(defaultChannelIds = listOf("alipay", "bank")),
         )), clock = clock)
         store.put("ledger", vm)
     }
@@ -42,7 +46,7 @@ class BookViewModelTest {
     }
 
     @Test fun hiddenModeCannotOpenOrSaveFinancialEditors() {
-        vm.openAssets(); vm.openIncome(); vm.openChannel(); vm.openSmsInput()
+        vm.openAssets(vm.thisMonth); vm.openIncome(); vm.openChannel(); vm.openSmsInput()
         vm.saveAsset(); vm.saveIncome()
         assertNull(vm.assetDraft.value)
         assertNull(vm.incomeDraft.value)
@@ -51,7 +55,7 @@ class BookViewModelTest {
     }
 
     @Test fun restoresChannelOrderWithoutCopyingOldAmounts() {
-        vm.togglePrivacy(); vm.openAssets()
+        vm.togglePrivacy(); vm.openAssets(vm.thisMonth)
         assertEquals(listOf("alipay", "bank"), vm.assetDraft.value!!.balances.map { it.channelId })
         assertTrue(vm.assetDraft.value!!.balances.all { it.selected && it.amount.isEmpty() })
     }
@@ -103,13 +107,150 @@ class BookViewModelTest {
         assertTrue(vm.privacyHidden.value)
     }
 
-    @Test fun disablingStartupHideOnlyRevealsOnFirstLoadAndStillHidesInBackground() {
+    @Test fun disablingStartupHideRestoresUserChoiceAfterBackground() {
         val other = BookViewModel(ReadOnlyBookRepository(BookData(settings = BookSettings(hideOnStartup = false))), clock = clock)
         store.put("startup", other)
         assertFalse(other.privacyHidden.value)
+        other.obscureInBackground()
+        other.onBackgroundStopped()
+        assertTrue(other.privacyHidden.value)
+        other.onForeground()
+        assertFalse(other.privacyHidden.value)
         other.hidePrivateData()
+        other.obscureInBackground()
+        other.onBackgroundStopped()
+        other.onForeground()
         assertTrue(other.privacyHidden.value)
         other.reload()
         assertTrue(other.privacyHidden.value)
+    }
+
+    @Test fun autoHideAppliesToBackgroundReturnButNotConfigurationChanges() {
+        vm.togglePrivacy()
+        vm.obscureInBackground()
+        assertTrue(vm.privacyHidden.value)
+        // 配置变化只临时遮挡，不调用真正进入后台的通知。
+        vm.onForeground()
+        assertFalse(vm.privacyHidden.value)
+        vm.obscureInBackground()
+        vm.onBackgroundStopped()
+        vm.onForeground()
+        assertTrue(vm.privacyHidden.value)
+    }
+
+    @Test fun disablingAutoHideRestoresEditorAndDraftAfterBackground() {
+        vm.setHideOnStartup(false)
+        vm.togglePrivacy()
+        vm.openIncome()
+        vm.updateIncome(title = "未保存的收入", amount = "12.30")
+        val draft = vm.incomeDraft.value
+        vm.obscureInBackground()
+        vm.onBackgroundStopped()
+        vm.saveIncome()
+        assertTrue(vm.privacyHidden.value)
+        assertEquals(draft, vm.incomeDraft.value)
+        vm.onForeground()
+        assertFalse(vm.privacyHidden.value)
+        assertEquals(draft, vm.incomeDraft.value)
+    }
+
+    @Test fun delayedPreferencesNeverRevealDataWhileBackgrounded() {
+        val records = MutableStateFlow<BookData?>(null)
+        val repository = object : BookRepository by ReadOnlyBookRepository(BookData()) {
+            override fun observeBook() = records.filterNotNull()
+        }
+        val other = BookViewModel(repository, clock = clock)
+        store.put("delayed", other)
+        assertTrue(other.state.value.loading)
+        assertTrue(other.privacyHidden.value)
+        other.obscureInBackground()
+        other.onBackgroundStopped()
+        records.value = BookData(settings = BookSettings(hideOnStartup = false))
+        assertFalse(other.state.value.loading)
+        assertTrue(other.privacyHidden.value)
+        other.onForeground()
+        assertFalse(other.privacyHidden.value)
+    }
+
+    @Test fun coldStartUsesSavedPreferenceAfterPreviouslyHidingManually() {
+        val repository = ReadOnlyBookRepository(BookData(settings = BookSettings(hideOnStartup = false)))
+        val first = BookViewModel(repository, clock = clock)
+        store.put("first", first)
+        first.hidePrivateData()
+        val restarted = BookViewModel(repository, clock = clock)
+        store.put("restarted", restarted)
+        assertFalse(restarted.privacyHidden.value)
+    }
+
+    @Test fun newChannelFromAssetEditorIsSelectedImmediatelyAndClearsInput() {
+        vm.togglePrivacy(); vm.openAssets(vm.thisMonth)
+        vm.updateNewChannelName("  招商银行  ")
+        vm.addChannelToDraft()
+        val draft = vm.assetDraft.value!!
+        val added = draft.balances.last()
+        assertEquals("招商银行", added.name)
+        assertTrue(added.selected)
+        assertEquals("", draft.newChannelName)
+        assertEquals("招商银行", vm.state.value.data.activeChannels.last().name)
+    }
+
+    @Test fun blankNewChannelNameIsRejectedWithoutTouchingTheDraft() {
+        vm.togglePrivacy(); vm.openAssets(vm.thisMonth)
+        vm.updateNewChannelName("   ")
+        vm.addChannelToDraft()
+        assertEquals("   ", vm.assetDraft.value!!.newChannelName)
+        assertEquals(2, vm.assetDraft.value!!.balances.size)
+        assertEquals(2, vm.state.value.data.activeChannels.size)
+        assertEquals(R.string.error_channel_name, vm.message.value)
+    }
+
+    @Test fun channelOrderIsWrittenThroughToTheRepository() {
+        vm.togglePrivacy()
+        vm.commitChannelOrder(listOf("bank", "alipay"))
+        assertEquals(listOf("bank", "alipay"), vm.state.value.data.activeChannels.map { it.id })
+        // 登记时的默认勾选跟随新的渠道顺序。
+        vm.openAssets(vm.thisMonth)
+        assertEquals(listOf("bank", "alipay"), vm.assetDraft.value!!.balances.map { it.channelId })
+        assertEquals(2, vm.assetDraft.value!!.balances.count { it.selected })
+    }
+
+    @Test fun incomeIsSlicedByTheSelectedMonth() {
+        val repository = ReadOnlyBookRepository(BookData(incomes = listOf(
+            Income("february", "二月工资", Money.parse("100"), Instant.parse("2026-02-10T04:35:00Z")),
+            Income("october", "十月工资", Money.parse("200"), Instant.parse("2026-10-01T04:35:00Z")),
+        )))
+        val other = BookViewModel(repository, clock = clock)
+        store.put("months", other)
+        assertEquals(listOf("october"), other.state.value.data.incomesIn(other.thisMonth).map { it.id })
+        other.selectMonth(YearMonth.of(2026, 2))
+        assertEquals(listOf("february"), other.state.value.data.incomesIn(other.selectedMonth.value).map { it.id })
+    }
+
+    @Test fun assetEditorsAndDelayedDeletionKeepTheirExplicitPageMonth() {
+        val previous = YearMonth.of(2026, 9)
+        val snapshot = MonthlyAssetSnapshot(Instant.parse("2026-09-30T12:00:00Z"),
+            listOf(ChannelBalance("bank", "历史银行", Money(1250))), Money.ZERO)
+        val deleted = mutableListOf<YearMonth>()
+        val releaseDeletion = CompletableDeferred<Unit>()
+        val repository = object : BookRepository by ReadOnlyBookRepository(BookData(
+            channels = listOf(Channel("bank", "银行", true, 0)), snapshots = listOf(snapshot))) {
+            override suspend fun deleteAsset(month: YearMonth) { releaseDeletion.await(); deleted.add(month) }
+        }
+        val other = BookViewModel(repository, clock = clock)
+        store.put("page-actions", other)
+        other.togglePrivacy()
+        assertEquals(other.thisMonth, other.selectedMonth.value)
+        other.openAssets(previous)
+        assertEquals(previous, other.assetDraft.value!!.originalMonth)
+        assertEquals("12.50", other.assetDraft.value!!.balances.single().amount)
+        assertEquals("历史银行", other.assetDraft.value!!.balances.single().name)
+        other.selectMonth(previous.minusMonths(1))
+        other.deleteAsset(previous)
+        other.currentMonth()
+        releaseDeletion.complete(Unit)
+        assertEquals(listOf(previous), deleted)
+        other.closeAssetDraft()
+        other.openAssets(previous.minusMonths(1))
+        assertEquals(previous.minusMonths(1), YearMonth.from(other.assetDraft.value!!.registeredAt.atZone(BOOK_ZONE)))
     }
 }
