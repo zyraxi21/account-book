@@ -191,7 +191,7 @@ private fun SummaryRow(label: String, money: Money?, hidden: Boolean, emphasis: 
 fun AssetEditor(draft: AssetDraft, vm: BookViewModel, busy: Boolean) {
     EditorDialog(stringResource(if (draft.originalMonth == null) R.string.register_assets else R.string.edit_assets), busy,
         vm::closeAssetDraft, stringResource(R.string.save_assets), vm::saveAsset) {
-        DateTimeField(draft.registeredAt, vm::updateAssetDate, stringResource(R.string.registration_time))
+        DateField(draft.registeredAt, vm::updateAssetDate, stringResource(R.string.registration_date))
         BookText(stringResource(R.string.select_channels), size = 14.sp, color = LocalBookPalette.current.secondary)
         if (draft.balances.isEmpty()) BookText(stringResource(R.string.channel_none))
         draft.balances.forEach { balance ->

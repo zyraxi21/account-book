@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Compose 用例使用与主入口相同的 AppCompat 宿主，仅包含在 Debug 中。 -->
+        <activity android:name="androidx.appcompat.app.AppCompatActivity" android:exported="false" />
+    </application>
+</manifest>

@@ -4,15 +4,20 @@ import android.content.Context
 import android.content.Intent
 import android.app.Activity
 import android.view.View
+import android.view.ViewGroup
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import android.view.WindowManager
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.util.TypedValue
 import androidx.core.graphics.ColorUtils
 import com.microsoft.fluentui.tokenized.bottomsheet.BOTTOMSHEET_HANDLE_TAG
+import com.microsoft.fluentui.tokenized.bottomsheet.BOTTOMSHEET_CONTENT_TAG
+import com.microsoft.fluentui.calendar.CalendarView
+import com.microsoft.fluentui.view.WrapContentViewPager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,7 +58,7 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class PrivacyUiTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule val compose = createAndroidComposeRule<AppCompatActivity>()
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val store = ViewModelStore()
     private lateinit var vm: BookViewModel
@@ -95,7 +100,7 @@ class PrivacyUiTest {
         compose.onNodeWithText(context.getString(R.string.save_assets)).assertExists()
         compose.runOnIdle { assertTrue(vm.assetDraft.value!!.balances.single().selected); vm.updateBalance("bank", amount = "10.25") }
         compose.onNode(hasSetTextAction() and hasText("10.25")).assertExists()
-        compose.onNodeWithContentDescription(context.getString(R.string.select_datetime)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.select_date)).performClick()
         closeNativeDatePicker()
         compose.onNodeWithText(context.getString(R.string.save_assets)).assertExists()
         compose.runOnIdle { vm.hidePrivateData() }
@@ -103,7 +108,7 @@ class PrivacyUiTest {
         compose.runOnIdle { vm.togglePrivacy() }
         compose.onNode(hasSetTextAction() and hasText("10.25")).assertExists()
         compose.runOnIdle { darkTheme = true }
-        compose.onNodeWithContentDescription(context.getString(R.string.select_datetime)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.select_date)).performClick()
         closeNativeDatePicker()
     }
 
@@ -244,6 +249,17 @@ class PrivacyUiTest {
         scrollToText(R.string.about_title).performClick()
         compose.onNodeWithText(context.getString(R.string.encrypted_local_title)).assertExists()
         compose.onNodeWithTag(BOTTOMSHEET_HANDLE_TAG).assertExists()
+        // 正文拖动走嵌套滚动，与把手的关闭回调不同；两种方式都必须允许再次打开。
+        compose.onNodeWithTag(BOTTOMSHEET_CONTENT_TAG).performTouchInput { swipeDown() }
+        compose.onAllNodesWithText(context.getString(R.string.encrypted_local_title)).assertCountEquals(0)
+        scrollToText(R.string.about_title).performClick()
+        compose.onNodeWithText(context.getString(R.string.encrypted_local_title)).assertExists()
+        compose.onNodeWithTag(BOTTOMSHEET_HANDLE_TAG).performTouchInput {
+            swipe(start = center, end = Offset(center.x, height.toFloat() + 450f), durationMillis = 180)
+        }
+        compose.onAllNodesWithText(context.getString(R.string.encrypted_local_title)).assertCountEquals(0)
+        scrollToText(R.string.about_title).performClick()
+        compose.onNodeWithText(context.getString(R.string.encrypted_local_title)).assertExists()
         compose.onNodeWithContentDescription(context.getString(R.string.close)).performClick()
         compose.onAllNodesWithText(context.getString(R.string.encrypted_local_title)).assertCountEquals(0)
     }
@@ -360,6 +376,14 @@ class PrivacyUiTest {
             override fun getDescription() = "点击日期选择器关闭图标"
             override fun perform(uiController: UiController, view: View) {
                 assertTrue((view.rootView.layoutParams as WindowManager.LayoutParams).flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+                val pager = view.rootView.findViewById<WrapContentViewPager>(com.microsoft.fluentui.calendar.R.id.view_pager)
+                val calendar = pager.currentObject as CalendarView
+                assertEquals("日期选择器不应出现时间页", 1, pager.adapter!!.count)
+                assertEquals(View.GONE, view.rootView.findViewById<View>(com.microsoft.fluentui.calendar.R.id.tab_container).visibility)
+                assertTrue(calendar.height > 0)
+                assertEquals("日历下方不应保留时间页的空白", calendar.height, pager.height)
+                val weekHeading = calendar.getChildAt(0) as ViewGroup
+                assertEquals("日历必须显示七个星期标题", 7, weekHeading.childCount)
                 fun themeColor(attribute: Int): Int = TypedValue().let {
                     assertTrue(view.context.theme.resolveAttribute(attribute, it, true))
                     it.data
@@ -374,6 +398,14 @@ class PrivacyUiTest {
                     assertEquals(foreground, themeColor(attribute))
                     assertTrue("日期弹窗的标题、图标及日期必须清晰可读", ColorUtils.calculateContrast(themeColor(attribute), surface) >= 4.5)
                 }
+                // 保存独立日历的预览，内容来自测试替身，不涉及真实账务。
+                val card = view.rootView.findViewById<View>(com.microsoft.fluentui.calendar.R.id.card_view_container)
+                val preview = Bitmap.createBitmap(card.width, card.height, Bitmap.Config.ARGB_8888)
+                card.draw(Canvas(preview))
+                val file = File(context.getExternalFilesDir(null), "ui-verification/calendar-${if (darkTheme) "dark" else "light"}.png")
+                file.parentFile!!.mkdirs()
+                file.outputStream().use { assertTrue(preview.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                preview.recycle()
                 // 同进程调用实际关闭图标，避免真机的 INJECT_EVENTS 限制阻挡返回键注入。
                 assertTrue(view.performClick())
             }

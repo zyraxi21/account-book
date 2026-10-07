@@ -113,7 +113,7 @@ fun formatDateTime(time: Instant): String {
 }
 
 @Composable
-fun DateTimeField(time: Instant, onChange: (Instant) -> Unit, label: String) {
+fun DateField(time: Instant, onChange: (Instant) -> Unit, label: String) {
     val context = LocalContext.current
     val darkTheme = FluentTheme.themeMode == ThemeMode.Dark
     val pickerContext = remember(context, darkTheme) {
@@ -122,14 +122,19 @@ fun DateTimeField(time: Instant, onChange: (Instant) -> Unit, label: String) {
     }
     val allowScreenshots = LocalAllowScreenshots.current
     var pickerVisible by remember { mutableStateOf(false) }
+    val datePattern = stringResource(R.string.date_pattern)
+    val dateText = remember(time, datePattern) {
+        DateTimeFormatter.ofPattern(datePattern, Locale.SIMPLIFIED_CHINESE).format(time.atZone(BOOK_ZONE))
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         BookText(label, size = 14.sp, color = LocalBookPalette.current.secondary)
         Button(onClick = { pickerVisible = true }, style = ButtonStyle.OutlinedButton,
-            text = formatDateTime(time), contentDescription = stringResource(R.string.select_datetime))
+            text = dateText, contentDescription = stringResource(R.string.select_date))
     }
     if (pickerVisible) {
         DisposableEffect(pickerContext, allowScreenshots) {
-            val dialog = DateTimePickerDialog(pickerContext, DateTimePickerDialog.Mode.DATE_TIME, dateTime = time.atZone(BOOK_ZONE))
+            // 单页日历不创建时间页，也不保留切换时间页产生的高度和空白。
+            val dialog = DateTimePickerDialog(pickerContext, DateTimePickerDialog.Mode.DATE, dateTime = time.atZone(BOOK_ZONE))
             dialog.onDateTimePickedListener = object : DateTimePickerDialog.OnDateTimePickedListener {
                 override fun onDateTimePicked(dateTime: ZonedDateTime, duration: Duration) {
                     onChange(dateTime.toInstant())

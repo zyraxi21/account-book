@@ -7,8 +7,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,8 +47,9 @@ import kotlinx.coroutines.launch
 fun AboutScreen(onDismiss: () -> Unit) {
     val sheetState = rememberBottomSheetState(BottomSheetValue.Hidden)
     val scope = rememberCoroutineScope()
-    val close: () -> Unit = remember(sheetState, scope, onDismiss) {
-        { scope.launch { sheetState.hide(); onDismiss() }; Unit }
+    val dismiss by rememberUpdatedState(onDismiss)
+    val close: () -> Unit = remember(sheetState, scope) {
+        { scope.launch { sheetState.hide() }; Unit }
     }
     val maxHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() * 0.85f }
     // Fluent 以内容函数的标识缓存测量结果；保持引用稳定，避免动画帧反复重置高度。
@@ -61,7 +64,11 @@ fun AboutScreen(onDismiss: () -> Unit) {
     LaunchedEffect(sheetState) {
         // 先建立停靠位置，再由 Fluent 播放打开动画。
         snapshotFlow { sheetState.anchorsFilled }.first { it }
-        sheetState.show()
+        launch { sheetState.show() }.join()
+        // 正文下滑只改变 Fluent 的状态；所有关闭方式统一在停靠隐藏后移除弹层。
+        snapshotFlow { sheetState.currentValue == BottomSheetValue.Hidden && !sheetState.isAnimationRunning }
+            .first { it }
+        dismiss()
     }
     BottomSheet(
         modifier = Modifier.fillMaxSize().clipToBounds(),

@@ -81,6 +81,53 @@ class BookViewModelTest {
         assertNull(vm.smsText.value)
     }
 
+    @Test fun assetSaveKeepsSelectedDateAndUsesSaveTime() {
+        var saved: MonthlyAssetSnapshot? = null
+        val repository = object : BookRepository by ReadOnlyBookRepository(BookData(
+            channels = listOf(Channel("bank", "银行", true, 0)), settings = BookSettings(hideOnStartup = false))) {
+            override suspend fun saveAsset(snapshot: MonthlyAssetSnapshot, originalMonth: YearMonth?) { saved = snapshot }
+        }
+        val other = BookViewModel(repository, clock = clock)
+        store.put("save-date", other)
+        other.openAssets(YearMonth.of(2025, 12))
+        other.updateAssetDate(Instant.parse("2025-12-31T15:59:00Z"))
+        other.updateBalance("bank", amount = "10.25")
+        other.saveAsset()
+        assertEquals(Instant.parse("2025-12-31T04:35:00Z"), saved!!.registeredAt)
+        assertEquals(YearMonth.of(2025, 12), saved!!.month)
+    }
+
+    @Test fun manualIncomeSaveUsesSelectedShanghaiDateAndSaveTime() {
+        var saved: Income? = null
+        val repository = object : BookRepository by ReadOnlyBookRepository(BookData(settings = BookSettings(hideOnStartup = false))) {
+            override suspend fun saveIncome(income: Income, importFingerprint: String?) { saved = income }
+        }
+        val other = BookViewModel(repository, clock = clock)
+        store.put("income-date", other)
+        other.openIncome()
+        other.updateIncome(title = "补录收入", amount = "12.30", time = Instant.parse("2026-01-01T16:01:00Z"))
+        other.saveIncome()
+        assertEquals(Instant.parse("2026-01-02T04:35:00Z"), saved!!.receivedAt)
+    }
+
+    @Test fun smsIncomeSavePreservesBankTimeAndFingerprint() {
+        var saved: Income? = null
+        var fingerprint: String? = null
+        val repository = object : BookRepository by ReadOnlyBookRepository(BookData(settings = BookSettings(hideOnStartup = false))) {
+            override suspend fun saveIncome(income: Income, importFingerprint: String?) { saved = income; fingerprint = importFingerprint }
+        }
+        val other = BookViewModel(repository, clock = clock)
+        store.put("sms-time", other)
+        other.openSmsInput()
+        other.updateSmsInput("尾号1234卡10月6日12:34工商银行收入(工资)1000.00元，余额5000.00元。【工商银行】")
+        other.parseSms()
+        val draft = other.incomeDraft.value!!
+        other.saveIncome()
+        assertEquals(Instant.parse("2026-10-06T04:34:00Z"), saved!!.receivedAt)
+        assertEquals(IncomeSource.SMS, saved!!.source)
+        assertEquals(draft.fingerprint, fingerprint)
+    }
+
     @Test fun monthNavigationStopsAtCurrentMonthAndWorksAcrossYears() {
         vm.moveMonth(1)
         assertEquals(YearMonth.of(2026, 10), vm.selectedMonth.value)

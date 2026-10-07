@@ -4,10 +4,10 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -17,7 +17,8 @@ import io.github.zyraxi21.accountbook.ui.BookApp
 import io.github.zyraxi21.accountbook.ui.BookViewModel
 import io.github.zyraxi21.accountbook.ui.theme.AccountBookTheme
 
-class MainActivity : ComponentActivity() {
+// Fluent 原生日历通过 AppCompatActivity 查找宿主并构建星期标题。
+class MainActivity : AppCompatActivity() {
     private lateinit var bookViewModel: BookViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {

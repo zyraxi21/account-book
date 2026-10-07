@@ -54,6 +54,7 @@ room {
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.appcompat)
     implementation(libs.androidx.compose.foundation)
     // 提供系统动态取色、涟漪与 Snackbar，应用控件与主题使用 Fluent。
     implementation(libs.androidx.compose.material3)

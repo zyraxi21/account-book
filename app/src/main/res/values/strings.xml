@@ -41,8 +41,8 @@
     <string name="no_previous_month">暂无上月记录</string>
     <string name="no_assets_title">这个月还没有资产记录</string>
     <string name="no_assets_hint">登记各渠道余额和负债，开始核对月度资产。</string>
-    <string name="registration_time">登记时间</string>
-    <string name="select_datetime">选择日期时间</string>
+    <string name="registration_date">登记日期</string>
+    <string name="select_date">选择日期</string>
     <string name="save_assets">保存资产</string>
     <string name="save_income">保存收入</string>
     <string name="save_channel">保存渠道</string>
@@ -63,7 +63,7 @@
     <string name="income_project">项目</string>
     <string name="income_project_hint">例如：工资、奖金、退款</string>
     <string name="income_amount">收入金额（元）</string>
-    <string name="income_date">收入日期时间</string>
+    <string name="income_date">收入日期</string>
     <string name="income_source_manual">手动登记</string>
     <string name="income_source_sms">工行短信</string>
     <string name="income_month_empty_title">这个月还没有收入记录</string>
@@ -176,4 +176,5 @@
     <!-- 覆盖 Fluent 控件内部引用的资源，应用源码不会直接引用此名称。 -->
     <string name="fluentui_clear_text" tools:ignore="UnusedResources">清除文字</string>
     <string name="datetime_pattern" translatable="false">yyyy-MM-dd HH:mm</string>
+    <string name="date_pattern" translatable="false">yyyy-MM-dd</string>
 </resources>

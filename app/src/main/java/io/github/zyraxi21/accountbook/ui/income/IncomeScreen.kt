@@ -169,7 +169,7 @@ fun IncomeEditor(draft: IncomeDraft, vm: BookViewModel, busy: Boolean, editingEx
         TextField(draft.title, { vm.updateIncome(title = it.take(120)) }, Modifier.fillMaxWidth(), label = stringResource(R.string.income_project),
             hintText = stringResource(R.string.income_project_hint))
         AmountField(draft.amount, { vm.updateIncome(amount = it) }, stringResource(R.string.income_amount))
-        DateTimeField(draft.receivedAt, { vm.updateIncome(time = it) }, stringResource(R.string.income_date))
+        DateField(draft.receivedAt, { vm.updateIncome(time = it) }, stringResource(R.string.income_date))
     }
 }
 

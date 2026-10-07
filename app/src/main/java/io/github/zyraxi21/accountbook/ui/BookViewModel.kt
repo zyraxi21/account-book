@@ -210,7 +210,7 @@ class BookViewModel(
         if (!allowEdit()) return
         val draft = _assetDraft.value ?: return
         perform {
-            val snapshot = MonthlyAssetSnapshot(draft.registeredAt, draft.balances.filter { it.selected }.map {
+            val snapshot = MonthlyAssetSnapshot(atSaveTime(draft.registeredAt), draft.balances.filter { it.selected }.map {
                 ChannelBalance(it.channelId, it.name, Money.parse(it.amount))
             }, Money.parse(draft.liability.ifBlank { "0" }))
             repository.saveAsset(snapshot, draft.originalMonth)
@@ -233,10 +233,15 @@ class BookViewModel(
         if (!allowEdit()) return
         val draft = _incomeDraft.value ?: return
         perform {
-            repository.saveIncome(Income(draft.id, draft.title, Money.parse(draft.amount, positive = true), draft.receivedAt, draft.source), draft.fingerprint)
+            // 手动登记只选择日期；工行短信继续保留银行提供的原始时间。
+            val receivedAt = if (draft.source == IncomeSource.SMS) draft.receivedAt else atSaveTime(draft.receivedAt)
+            repository.saveIncome(Income(draft.id, draft.title, Money.parse(draft.amount, positive = true), receivedAt, draft.source), draft.fingerprint)
             _incomeDraft.value = null
         }
     }
+
+    private fun atSaveTime(selectedDate: Instant): Instant = selectedDate.atZone(BOOK_ZONE).toLocalDate()
+        .atTime(clock.instant().atZone(BOOK_ZONE).toLocalTime()).atZone(BOOK_ZONE).toInstant()
     fun deleteIncome(id: String) { if (allowEdit()) perform(R.string.deleted) { repository.deleteIncome(id) } }
     fun openSmsInput() { if (allowEdit()) _smsText.value = "" }
     fun updateSmsInput(text: String) { _smsText.value = text.take(4096) }
