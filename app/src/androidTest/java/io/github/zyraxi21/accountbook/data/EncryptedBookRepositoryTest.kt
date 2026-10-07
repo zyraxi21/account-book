@@ -386,10 +386,12 @@ class EncryptedBookRepositoryTest {
         val historical = book().snapshots.single()
         repository.reorderChannels(listOf(alipay.id, bank.id))
         assertEquals(listOf(alipay.id, bank.id), book().activeChannels.take(2).map { it.id })
+        assertEquals(listOf(alipay.id, bank.id), book().nextRegistrationChannels().map { it.id })
         // 回看旧月份时渠道顺序保持登记当时的样子。
         assertEquals(historical, book().snapshots.single())
         database.close(); reopen()
         assertEquals(listOf(alipay.id, bank.id), book().activeChannels.take(2).map { it.id })
+        assertEquals(listOf(alipay.id, bank.id), book().nextRegistrationChannels().map { it.id })
     }
 
     @Test fun reorderRejectsUnknownOrRepeatedChannelsWithoutChangingAnything() = runBlocking {

@@ -351,22 +351,67 @@ class PrivacyUiTest {
             Channel("a", "渠道甲", true, 0), Channel("b", "渠道乙", true, 1), Channel("c", "渠道丙", true, 2)))
         compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
         compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        dragChannel("a")
+        val savedOrder = vm.state.value.data.activeChannels.map { it.id }
+        compose.runOnIdle {
+            assertEquals(setOf("a", "b", "c"), savedOrder.toSet())
+            assertTrue(savedOrder.indexOf("a") > 0)
+        }
+        assertChannelOrder(savedOrder)
+        compose.onNodeWithText(context.getString(R.string.tab_assets)).performClick()
+        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("channel_handle_a"))
-        compose.onNodeWithTag("channel_handle_a").performTouchInput {
+        compose.runOnIdle { assertEquals(savedOrder, vm.state.value.data.activeChannels.map { it.id }) }
+        assertChannelOrder(savedOrder)
+    }
+
+    @Test fun hiddenChannelListDoesNotApplyAnUnsavedOrder() {
+        launchBook(hasSnapshot = false, channels = listOf(
+            Channel("a", "渠道甲", true, 0), Channel("b", "渠道乙", true, 1), Channel("c", "渠道丙", true, 2)))
+        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("channel_handle_a"))
+        compose.onNodeWithTag("channel_handle_a").assertIsNotEnabled()
+        dragChannel("a")
+        assertChannelOrder(listOf("a", "b", "c"))
+        compose.runOnIdle { assertEquals(listOf("a", "b", "c"), vm.state.value.data.activeChannels.map { it.id }) }
+        compose.onNodeWithText(context.getString(R.string.tab_assets)).performClick()
+        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("channel_handle_a"))
+        assertChannelOrder(listOf("a", "b", "c"))
+    }
+
+    @Test fun cancellingAnotherDragKeepsTheLastSavedChannelOrder() {
+        launchBook(hasSnapshot = false, channels = listOf(
+            Channel("a", "渠道甲", true, 0), Channel("b", "渠道乙", true, 1), Channel("c", "渠道丙", true, 2)))
+        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        dragChannel("a")
+        val savedOrder = vm.state.value.data.activeChannels.map { it.id }
+        assertTrue(savedOrder.indexOf("a") > 0)
+        dragChannel(savedOrder.first(), cancel = true)
+        compose.runOnIdle { assertEquals(savedOrder, vm.state.value.data.activeChannels.map { it.id }) }
+        assertChannelOrder(savedOrder)
+    }
+
+    private fun dragChannel(id: String, cancel: Boolean = false) {
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("channel_handle_$id"))
+        compose.onNodeWithTag("channel_handle_$id").performTouchInput {
             down(center)
             // 长按检测需要超过系统长按时长的静止时间才会开始拖动。
             advanceEventTime(1_000)
             moveBy(Offset(0f, 60f))
             moveBy(Offset(0f, 120f))
             moveBy(Offset(0f, 200f))
-            up()
+            if (cancel) cancel() else up()
         }
         compose.waitForIdle()
-        compose.runOnIdle {
-            val order = vm.state.value.data.activeChannels.map { it.id }
-            assertEquals(setOf("a", "b", "c"), order.toSet())
-            assertTrue(order.indexOf("a") > 0)
+    }
+
+    private fun assertChannelOrder(expected: List<String>) {
+        val displayed = expected.sortedBy { id ->
+            compose.onNodeWithTag("channel_row_$id").fetchSemanticsNode().positionInRoot.y
         }
+        assertEquals(expected, displayed)
     }
 
     private fun closeNativeDatePicker() {

@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,23 +43,9 @@ import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 import kotlin.math.abs
 
 /**
- * 渠道列表：长按 ☰ 图标或渠道名称即可上下拖动排序。
- *
- * 三个改动时不要走回头路的点：
- *
- * 1. 每一行必须包在 `key(channel.id)` 里。`Column` 默认按位置匹配子项，重排后同一位置会被
- *    复用给另一个渠道，`pointerInput(channel.id)` 的 key 因此变化，正在执行的手势协程会被
- *    静默取消——`onDragCancel` 也不会回调，拖动状态就永久残留（表现为一行悬在半空）。
- *    `pointerInput` 的 key 只能写 `channel.id`，写进任何会随重排变化的顺序都会重现这个问题。
- * 2. 手势协程外面套 `try / finally`：协程取消同样不会回调 `onDragEnd`/`onDragCancel`，
- *    只有 `finally` 能保证拖动状态一定被清除。
- * 3. 不要为了"防止拖动时页面滚动"去关父级 `userScrollEnabled`；一旦拖动状态意外残留，
- *    那会把整个设置页锁死。
- *
- * 列表本身不用 `LazyColumn`：它已经在 `LedgerCard` 的 `Column` 里，同方向嵌套滚动会抛异常。
- *
- * 已知限制：拖到列表边缘不会自动滚动，一屏放不下时请先滚动再拖。
- * 排序只在松手时落库一次；写入失败不会立刻回滚本地顺序，下一次渠道数据变化时会自动回到权威顺序。
+ * 长按图标或名称拖动排序，仅在松手时保存；取消拖动只恢复仓储返回的顺序。
+ * 使用稳定渠道 ID 保留行和手势，顺序变化不重启手势协程；隐私或忙碌状态改变则终止拖动。
+ * 列表跟随设置页滚动，不嵌套同方向的 LazyColumn。
  */
 @Composable
 fun ChannelList(channels: List<Channel>, hidden: Boolean, busy: Boolean,
@@ -65,6 +53,9 @@ fun ChannelList(channels: List<Channel>, hidden: Boolean, busy: Boolean,
                 onRename: (Channel) -> Unit, onDelete: (Channel) -> Unit) {
     // 拖动期间的本地顺序；上游数据变化（落库成功、新增、删除、改名）后自动回到权威顺序。
     val orderState = remember { mutableStateOf(channels) }
+    val currentChannels by rememberUpdatedState(channels)
+    val commitOrder by rememberUpdatedState(onReorder)
+    val enabled = !hidden && !busy
     LaunchedEffect(channels) { orderState.value = channels }
     // 各行的布局位置，用于判断拖到了哪一格。记录的是不随手指平移的容器。
     val bounds = remember { mutableStateMapOf<String, Rect>() }
@@ -85,10 +76,11 @@ fun ChannelList(channels: List<Channel>, hidden: Boolean, busy: Boolean,
     }
 
     fun move(from: Int, to: Int) {
+        if (!enabled) return
         val current = orderState.value
         if (from !in current.indices || to !in current.indices || from == to) return
         orderState.value = current.toMutableList().apply { add(to, removeAt(from)) }
-        onReorder(orderState.value.map { it.id })
+        commitOrder(orderState.value.map { it.id })
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -105,10 +97,12 @@ fun ChannelList(channels: List<Channel>, hidden: Boolean, busy: Boolean,
                         if (bounds[channel.id] != rect) bounds[channel.id] = rect
                     }
                     .semantics {
-                        customActions = listOf(
-                            CustomAccessibilityAction(moveUpLabel) { move(index, index - 1); true },
-                            CustomAccessibilityAction(moveDownLabel) { move(index, index + 1); true },
-                        )
+                        if (enabled) {
+                            customActions = listOf(
+                                CustomAccessibilityAction(moveUpLabel) { move(index, index - 1); true },
+                                CustomAccessibilityAction(moveDownLabel) { move(index, index + 1); true },
+                            )
+                        }
                     }
                     .testTag("channel_row_${channel.id}")) {
                     Row(
@@ -125,7 +119,8 @@ fun ChannelList(channels: List<Channel>, hidden: Boolean, busy: Boolean,
                         // 长按图标或名称都能开始拖动；不放 "编辑/删除" 按钮，避免长按按钮时误触发排序。
                         Row(
                             Modifier.weight(1f).heightIn(min = 48.dp)
-                                .pointerInput(channel.id) {
+                                .pointerInput(channel.id, enabled) {
+                                    if (!enabled) return@pointerInput
                                     try {
                                         detectDragGesturesAfterLongPress(
                                             onDragStart = {
@@ -150,17 +145,21 @@ fun ChannelList(channels: List<Channel>, hidden: Boolean, busy: Boolean,
                                             onDragEnd = {
                                                 draggingId = null
                                                 dragDelta = 0f
-                                                onReorder(orderState.value.map { it.id })
+                                                commitOrder(orderState.value.map { it.id })
                                             },
                                             onDragCancel = {
-                                                // 顺序已经动过，回滚后必须把回滚结果也写回仓储。
-                                                orderState.value = channels
-                                                onReorder(channels.map { it.id })
+                                                // 拖动尚未保存，取消时无需写入，避免覆盖上一次成功排序。
+                                                orderState.value = currentChannels
+                                                draggingId = null
+                                                dragDelta = 0f
                                             },
                                         )
                                     } finally {
-                                        draggingId = null
-                                        dragDelta = 0f
+                                        if (draggingId == channel.id) {
+                                            orderState.value = currentChannels
+                                            draggingId = null
+                                            dragDelta = 0f
+                                        }
                                     }
                                 },
                             verticalAlignment = Alignment.CenterVertically,
@@ -169,13 +168,16 @@ fun ChannelList(channels: List<Channel>, hidden: Boolean, busy: Boolean,
                             Box(
                                 Modifier.size(48.dp)
                                     .testTag("channel_handle_${channel.id}")
-                                    .semantics { contentDescription = dragHandleLabel },
+                                    .semantics {
+                                        contentDescription = dragHandleLabel
+                                        if (!enabled) disabled()
+                                    },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Image(
                                     painterResource(R.drawable.ic_drag_handle), contentDescription = null,
                                     modifier = Modifier.size(24.dp),
-                                    colorFilter = ColorFilter.tint(LocalBookPalette.current.secondary),
+                                    colorFilter = ColorFilter.tint(LocalBookPalette.current.secondary.copy(alpha = if (enabled) 1f else 0.38f)),
                                 )
                             }
                             PrivateText(channel.name, hidden, Modifier.weight(1f))

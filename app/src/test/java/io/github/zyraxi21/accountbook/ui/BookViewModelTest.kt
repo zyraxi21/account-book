@@ -253,11 +253,11 @@ class BookViewModelTest {
 
     @Test fun channelOrderIsWrittenThroughToTheRepository() {
         vm.togglePrivacy()
-        vm.commitChannelOrder(listOf("bank", "alipay"))
-        assertEquals(listOf("bank", "alipay"), vm.state.value.data.activeChannels.map { it.id })
+        vm.commitChannelOrder(listOf("alipay", "bank"))
+        assertEquals(listOf("alipay", "bank"), vm.state.value.data.activeChannels.map { it.id })
         // 登记时的默认勾选跟随新的渠道顺序。
         vm.openAssets(vm.thisMonth)
-        assertEquals(listOf("bank", "alipay"), vm.assetDraft.value!!.balances.map { it.channelId })
+        assertEquals(listOf("alipay", "bank"), vm.assetDraft.value!!.balances.map { it.channelId })
         assertEquals(2, vm.assetDraft.value!!.balances.count { it.selected })
     }
 
