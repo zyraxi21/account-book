@@ -5,10 +5,17 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteException
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.SupportSQLiteDatabase
 import io.github.zyraxi21.accountbook.data.crypto.DatabaseKeyStore
 import io.github.zyraxi21.accountbook.data.local.BookDatabase
 import io.github.zyraxi21.accountbook.data.local.EncryptedDatabaseFactory
 import io.github.zyraxi21.accountbook.data.repository.EncryptedBookRepository
+import io.github.zyraxi21.accountbook.data.transfer.BookTransfer
+import io.github.zyraxi21.accountbook.data.transfer.ExportFormat
+import io.github.zyraxi21.accountbook.data.transfer.ImportRequest
+import android.net.Uri
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 import io.github.zyraxi21.accountbook.domain.*
 import io.github.zyraxi21.accountbook.sms.IcbcSmsParser
 import io.github.zyraxi21.accountbook.sms.SmsParseResult
@@ -256,6 +263,117 @@ class EncryptedBookRepositoryTest {
         assertEquals(1, book().snapshots.size)
         database.close(); reopen()
         assertEquals(Money(5000), book().cumulativeIncome)
+    }
+
+    @Test fun ownJsonAndCsvBackupsMergeWithoutDuplicatePrimaryKeys() = runBlocking {
+        val bank = book().activeChannels.first()
+        repository.saveAsset(MonthlyAssetSnapshot(now, listOf(ChannelBalance(bank.id, bank.name, Money(12345))), Money(100)))
+        repository.saveIncome(Income("round-trip", "导入往返验证", Money(1234), now))
+        val original = book()
+        for (copy in listOf(BookDecoder().fromJson(BookExporter.toJson(original, now)), BookDecoder().fromCsv(BookExporter.toCsv(original)))) {
+            assertEquals(BookImportResult(ImportMode.MERGE, 0, 0, 0), repository.importBook(copy, ImportMode.MERGE))
+            assertEquals(original, book())
+        }
+    }
+
+    @Test fun mergeInsertsNewChannelsBeforeTheirBalancesAndKeepsLocalMonths() = runBlocking {
+        val bank = book().activeChannels.first()
+        val original = MonthlyAssetSnapshot(now, listOf(ChannelBalance(bank.id, bank.name, Money(100))), Money.ZERO)
+        repository.saveAsset(original)
+        val incoming = importedBook()
+        assertEquals(BookImportResult(ImportMode.MERGE, 1, 1, 1), repository.importBook(incoming, ImportMode.MERGE))
+        assertEquals(original, book().snapshot(original.month))
+        assertEquals("旧渠道名称", book().snapshot(incoming.snapshots.single().month)!!.balances.single().channelName)
+        assertEquals(BookImportResult(ImportMode.MERGE, 0, 0, 0), repository.importBook(incoming, ImportMode.MERGE))
+    }
+
+    @Test fun explicitReplacePreservesDevicePreferencesAndSmsReceipts() = runBlocking {
+        repository.setSmsAutoImport(true)
+        repository.setHideOnStartup(false)
+        repository.setAllowScreenshots(true)
+        assertTrue(repository.importSms(parsed()))
+        val incoming = importedBook()
+        assertEquals(BookImportResult(ImportMode.REPLACE, 1, 1, 1), repository.importBook(incoming, ImportMode.REPLACE))
+        val replaced = book()
+        assertEquals(incoming.channels, replaced.channels)
+        assertEquals(incoming.snapshots, replaced.snapshots)
+        assertEquals(incoming.incomes, replaced.incomes)
+        assertFalse(replaced.settings.hideOnStartup)
+        assertTrue(replaced.settings.allowScreenshots)
+        assertTrue(replaced.settings.smsAutoImportEnabled)
+        assertFalse(repository.importSms(parsed()))
+        database.close(); reopen()
+        assertEquals(replaced, book())
+    }
+
+    @Test fun invalidReplaceLeavesOriginalDataAndMemoryUntouched() = runBlocking {
+        repository.saveIncome(Income("preserve-import", "覆盖失败保留验证", Money(100), now))
+        val original = book()
+        try {
+            repository.importBook(importedBook().copy(channels = emptyList()), ImportMode.REPLACE)
+            fail("缺少渠道的备份应拒绝覆盖")
+        } catch (error: BookException) { assertEquals(BookError.IMPORT_INVALID_FIELD, error.error) }
+        assertEquals(original, book())
+    }
+
+    @Test fun fileTransferRoundTripHonorsContentAndRecordsBothExportFormats() = runBlocking {
+        repository.importBook(importedBook(), ImportMode.REPLACE)
+        val transfer = BookTransfer(context, repository, clock = { now })
+        for (format in ExportFormat.entries) {
+            val file = File(directory, "round-trip.${format.extension}")
+            val original = book()
+            assertTrue(transfer.export(Uri.fromFile(file), format, original) > 0)
+            assertEquals(now, book().settings.exportedAt)
+            // 旧版本曾产生 .csv.json，实际内容必须比后缀有更高优先级。
+            val outcome = transfer.import(ImportRequest(Uri.fromFile(file), "backup.csv.json"), ImportMode.MERGE)
+            assertEquals(BookImportResult(ImportMode.MERGE, 0, 0, 0), outcome)
+            assertEquals(original.copy(settings = original.settings.copy(exportedAt = now)), book())
+            assertTrue(file.delete())
+        }
+    }
+
+    @Test fun versionOneAndTwoMigrateWithoutChangingFinancialData() = runBlocking {
+        for (version in listOf(2, 1)) {
+            repository.saveIncome(Income("migration-$version", "迁移保留验证", Money(123), now))
+            repository.setSmsAutoImport(true)
+            val original = book()
+            database.close()
+            val password = DatabaseKeyStore(directory, alias).loadOrCreate(databaseExists = true)
+            try {
+                val factory = SupportOpenHelperFactory(password)
+                val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+                    .name(File(directory, "accountbook.db").absolutePath)
+                    .callback(object : SupportSQLiteOpenHelper.Callback(3) {
+                        override fun onCreate(db: SupportSQLiteDatabase) = Unit
+                        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                    }).build()
+                factory.create(config).use { helper ->
+                    val db = helper.writableDatabase
+                    db.execSQL("ALTER TABLE app_settings RENAME TO settings_before_migration")
+                    val extraColumn = if (version == 2) ", lastExportAtMillis INTEGER" else ""
+                    db.execSQL("CREATE TABLE app_settings (id INTEGER NOT NULL PRIMARY KEY, smsAutoImportEnabled INTEGER NOT NULL$extraColumn)")
+                    db.execSQL("INSERT INTO app_settings (id, smsAutoImportEnabled) SELECT id, smsAutoImportEnabled FROM settings_before_migration")
+                    db.execSQL("DROP TABLE settings_before_migration")
+                    db.execSQL("PRAGMA user_version = $version")
+                }
+            } finally { password.fill(0) }
+            reopen()
+            val migrated = book()
+            assertEquals(original.channels, migrated.channels)
+            assertEquals(original.snapshots, migrated.snapshots)
+            assertEquals(original.incomes, migrated.incomes)
+            assertEquals(original.settings.rememberedChannelIds, migrated.settings.rememberedChannelIds)
+            assertTrue(migrated.settings.hideOnStartup)
+            assertFalse(migrated.settings.allowScreenshots)
+            assertTrue(migrated.settings.smsAutoImportEnabled)
+        }
+    }
+
+    private fun importedBook(): BookData {
+        val time = Instant.parse("2026-09-30T12:00:00Z")
+        return BookData(channels = listOf(Channel("imported-channel", "导入渠道", true, 0)),
+            snapshots = listOf(MonthlyAssetSnapshot(time, listOf(ChannelBalance("imported-channel", "旧渠道名称", Money(999))), Money(100))),
+            incomes = listOf(Income("imported-income", "导入验证项目", Money(321), time)))
     }
 
     private fun reopen() {

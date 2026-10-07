@@ -61,9 +61,9 @@ fun IncomeScreen(data: BookData, hidden: Boolean, busy: Boolean, onAdd: () -> Un
 }
 
 @Composable
-fun IncomeEditor(draft: IncomeDraft, vm: BookViewModel, busy: Boolean, message: String?, editingExisting: Boolean) {
+fun IncomeEditor(draft: IncomeDraft, vm: BookViewModel, busy: Boolean, editingExisting: Boolean) {
     EditorDialog(stringResource(if (editingExisting) R.string.edit_income else R.string.add_income), busy,
-        vm::closeIncomeDraft, stringResource(R.string.save_income), vm::saveIncome, message) {
+        vm::closeIncomeDraft, stringResource(R.string.save_income), vm::saveIncome) {
         TextField(draft.title, { vm.updateIncome(title = it.take(120)) }, Modifier.fillMaxWidth(), label = stringResource(R.string.income_project),
             hintText = stringResource(R.string.income_project_hint))
         AmountField(draft.amount, { vm.updateIncome(amount = it) }, stringResource(R.string.income_amount))
@@ -72,8 +72,8 @@ fun IncomeEditor(draft: IncomeDraft, vm: BookViewModel, busy: Boolean, message: 
 }
 
 @Composable
-fun SmsInputEditor(text: String, vm: BookViewModel, busy: Boolean, message: String?) {
-    EditorDialog(stringResource(R.string.sms_parse), busy, vm::closeSmsInput, stringResource(R.string.parse_income), vm::parseSms, message) {
+fun SmsInputEditor(text: String, vm: BookViewModel, busy: Boolean) {
+    EditorDialog(stringResource(R.string.sms_parse), busy, vm::closeSmsInput, stringResource(R.string.parse_income), vm::parseSms) {
         BookText(stringResource(R.string.sms_parse_hint), size = 14.sp, color = LocalBookPalette.current.secondary)
         TextField(text, vm::updateSmsInput, Modifier.fillMaxWidth().heightIn(min = 180.dp), label = stringResource(R.string.sms_body),
             hintText = stringResource(R.string.sms_example))

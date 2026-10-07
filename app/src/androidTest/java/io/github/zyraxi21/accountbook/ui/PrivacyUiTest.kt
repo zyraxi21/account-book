@@ -1,29 +1,57 @@
 package io.github.zyraxi21.accountbook.ui
 
 import android.content.Context
+import android.content.Intent
+import android.app.Activity
+import android.view.View
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.activity.ComponentActivity
+import android.view.WindowManager
+import android.graphics.Bitmap
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.ViewAction
+import androidx.test.espresso.UiController
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.core.app.ActivityOptionsCompat
+import androidx.compose.runtime.CompositionLocalProvider
+import io.github.zyraxi21.accountbook.data.transfer.BookTransfer
+import org.hamcrest.Matcher
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.*
 import io.github.zyraxi21.accountbook.testing.ReadOnlyBookRepository
 import io.github.zyraxi21.accountbook.ui.theme.AccountBookTheme
 import org.junit.After
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.Clock
 import java.time.Instant
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class PrivacyUiTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val store = ViewModelStore()
     private lateinit var vm: BookViewModel
+    private var darkTheme by mutableStateOf(false)
     private val now = Instant.parse("2026-10-06T04:35:00Z")
 
     @After fun cleanup() { compose.runOnIdle { store.clear() } }
@@ -44,6 +72,7 @@ class PrivacyUiTest {
     @Test fun hidingRemovesEditorTextAndKeepsDraftForLater() {
         launchBook()
         compose.runOnIdle {
+            compose.activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             vm.togglePrivacy(); vm.openIncome(); vm.updateIncome(title = "编辑中的隐私项目", amount = "432.10")
         }
         compose.onNode(hasSetTextAction() and hasText("编辑中的隐私项目")).assertExists()
@@ -53,14 +82,159 @@ class PrivacyUiTest {
         compose.onNode(hasSetTextAction() and hasText("编辑中的隐私项目")).assertExists()
     }
 
-    private fun launchBook() {
+    @Test fun registeringAssetsWithSelectedFluentCheckboxesDoesNotCrashAndRestoresDraft() {
+        launchBook(hasSnapshot = false)
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithText(context.getString(R.string.register_assets)).performClick()
+        compose.onNodeWithText(context.getString(R.string.save_assets)).assertExists()
+        compose.runOnIdle { assertTrue(vm.assetDraft.value!!.balances.single().selected); vm.updateBalance("bank", amount = "10.25") }
+        compose.onNode(hasSetTextAction() and hasText("10.25")).assertExists()
+        compose.onNodeWithContentDescription(context.getString(R.string.select_datetime)).performClick()
+        closeNativeDatePicker()
+        compose.onNodeWithText(context.getString(R.string.save_assets)).assertExists()
+        compose.runOnIdle { vm.hidePrivateData() }
+        compose.onAllNodes(hasSetTextAction() and hasText("10.25"), useUnmergedTree = true).assertCountEquals(0)
+        compose.runOnIdle { vm.togglePrivacy() }
+        compose.onNode(hasSetTextAction() and hasText("10.25")).assertExists()
+    }
+
+    @Test fun swipesNavigateMonthsAndCurrentMonthCannotAdvance() {
+        launchBook()
+        compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsNotEnabled()
+        compose.onAllNodesWithContentDescription(context.getString(R.string.current_month)).assertCountEquals(0)
+        val label = context.getString(R.string.month_format, vm.thisMonth.year, vm.thisMonth.monthValue)
+        val originalX = compose.onNodeWithText(label).fetchSemanticsNode().positionInRoot.x
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.onNodeWithTag("month_statement_pager").performTouchInput {
+                down(center)
+                moveBy(Offset(width * 0.12f, 0f))
+                moveBy(Offset(width * 0.18f, 0f))
+            }
+            compose.mainClock.advanceTimeByFrame()
+            val draggedX = compose.onNodeWithText(label).fetchSemanticsNode().positionInRoot.x
+            assertTrue("页面应在手指未松开时跟随拖动", draggedX > originalX + 20f)
+            assertEquals("拖动途中不应改变登记目标月份", vm.thisMonth, vm.selectedMonth.value)
+            compose.onNodeWithTag("month_statement_pager").performTouchInput { advanceEventTime(300); up() }
+        } finally { compose.mainClock.autoAdvance = true }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals("短距离拖动应吸附回原月份", vm.thisMonth, vm.selectedMonth.value) }
+        compose.onNodeWithTag("month_statement_pager").performTouchInput { swipeLeft() }
+        compose.runOnIdle { assertEquals(vm.thisMonth, vm.selectedMonth.value) }
+        compose.onNodeWithTag("month_statement_pager").performTouchInput { swipeRight() }
+        compose.runOnIdle { assertEquals(vm.thisMonth.minusMonths(1), vm.selectedMonth.value) }
+        compose.onNodeWithContentDescription(context.getString(R.string.current_month)).assertExists().performClick()
+        compose.runOnIdle { assertEquals(vm.thisMonth, vm.selectedMonth.value) }
+        compose.onAllNodesWithContentDescription(context.getString(R.string.current_month)).assertCountEquals(0)
+        capturePreview("assets-light")
+    }
+
+    @Test fun systemHintUsesSnackbarAndPrivacyControlHasNoVisibleTextLabel() {
+        launchBook(hasSnapshot = false)
+        compose.onAllNodesWithText("隐私").assertCountEquals(0)
+        compose.onNodeWithText(context.getString(R.string.register_assets)).performClick()
+        compose.onNodeWithText(context.getString(R.string.privacy_reveal_first)).assertExists()
+    }
+
+    @Test fun startupAndScreenshotSwitchesSaveWithoutSuccessMessageAndAboutContainsLocalDataInfo() {
+        launchBook()
+        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.default_privacy_title)).performScrollTo().performClick()
+        compose.runOnIdle { assertFalse(vm.state.value.data.settings.hideOnStartup); assertEquals(null, vm.message.value) }
+        compose.onNodeWithContentDescription(context.getString(R.string.allow_screenshots_title)).performScrollTo().performClick()
+        compose.runOnIdle { assertTrue(vm.state.value.data.settings.allowScreenshots); assertEquals(null, vm.message.value) }
+        capturePreview("settings-light")
+        compose.runOnIdle { darkTheme = true }
+        compose.waitForIdle()
+        capturePreview("settings-dark")
+        compose.onAllNodesWithText(context.getString(R.string.encrypted_local_title)).assertCountEquals(0)
+        scrollToText(R.string.about_title).performClick()
+        compose.onNodeWithText(context.getString(R.string.encrypted_local_title)).assertExists()
+    }
+
+    @Test fun alternatingExportsLaunchDocumentPickerWithMatchingMimeAndExtension() {
+        val registry = CapturingRegistry()
+        launchBook(registry = registry, enableTransfer = true)
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
+        for (label in listOf(R.string.export_json, R.string.export_csv, R.string.export_json)) {
+            scrollToText(label).performClick()
+            compose.waitForIdle()
+        }
+        assertEquals(listOf("application/json", "text/csv", "application/json"), registry.intents.map { it.type })
+        assertEquals(listOf("accountbook.json", "accountbook.csv", "accountbook.json"), registry.intents.map { it.getStringExtra(Intent.EXTRA_TITLE) })
+    }
+
+    @Test fun importOffersMergeAndRequiresSecondConfirmationForReplacement() {
+        val registry = CapturingRegistry()
+        launchBook(registry = registry, enableTransfer = true)
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
+        scrollToText(R.string.import_button).performClick()
+        compose.onNodeWithText(context.getString(R.string.import_merge_button)).performClick()
+        compose.waitForIdle()
+        assertEquals(1, registry.intents.size)
+        scrollToText(R.string.import_button).performClick()
+        compose.onNodeWithText(context.getString(R.string.import_confirm_replace)).performClick()
+        compose.onNodeWithText(context.getString(R.string.import_replace_title)).assertExists()
+        assertEquals(1, registry.intents.size)
+        compose.onNodeWithText(context.getString(R.string.cancel)).performClick()
+        assertEquals(1, registry.intents.size)
+    }
+
+    private fun closeNativeDatePicker() {
+        val description = context.getString(com.microsoft.fluentui.calendar.R.string.date_time_picker_accessibility_close_dialog_button)
+        onView(withContentDescription(description)).perform(object : ViewAction {
+            override fun getConstraints(): Matcher<View> = isDisplayed()
+            override fun getDescription() = "点击日期选择器关闭图标"
+            override fun perform(uiController: UiController, view: View) {
+                assertTrue((view.rootView.layoutParams as WindowManager.LayoutParams).flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+                // 同进程调用实际关闭图标，避免真机的 INJECT_EVENTS 限制阻挡返回键注入。
+                assertTrue(view.performClick())
+            }
+        })
+        compose.waitForIdle()
+    }
+
+    private fun scrollToText(resource: Int): SemanticsNodeInteraction {
+        val matcher = hasText(context.getString(resource))
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(matcher)
+        return compose.onNode(matcher).performScrollTo()
+    }
+
+    private fun capturePreview(name: String) {
+        // 仅导出测试替身界面，截图中不包含手机上的实际账务。
+        val file = File(context.getExternalFilesDir(null), "ui-verification/$name.png")
+        file.parentFile!!.mkdirs()
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+    }
+
+    private inner class CapturingRegistry : ActivityResultRegistry(), ActivityResultRegistryOwner {
+        val intents = mutableListOf<Intent>()
+        override val activityResultRegistry: ActivityResultRegistry get() = this
+        override fun <I, O> onLaunch(requestCode: Int, contract: ActivityResultContract<I, O>, input: I, options: ActivityOptionsCompat?) {
+            intents.add(contract.createIntent(context, input))
+            dispatchResult(requestCode, Activity.RESULT_CANCELED, null)
+        }
+    }
+
+    private fun launchBook(hasSnapshot: Boolean = true, registry: ActivityResultRegistryOwner? = null, enableTransfer: Boolean = false) {
         compose.runOnIdle {
-            vm = BookViewModel(ReadOnlyBookRepository(BookData(channels = listOf(Channel("bank", "隐私银行", true, 0)),
-                snapshots = listOf(MonthlyAssetSnapshot(now, listOf(ChannelBalance("bank", "隐私银行", Money(123456))), Money(10000))),
-                incomes = listOf(Income("salary", "隐私收入项目", Money(10000), now)))), clock = Clock.fixed(now, BOOK_ZONE))
+            // 仅测试活动保持亮屏，避免厂商在回归过程中冻结测试进程。
+            compose.activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            val repository = ReadOnlyBookRepository(BookData(channels = listOf(Channel("bank", "隐私银行", true, 0)),
+                snapshots = if (hasSnapshot) listOf(MonthlyAssetSnapshot(now, listOf(ChannelBalance("bank", "隐私银行", Money(123456))), Money(10000))) else emptyList(),
+                incomes = listOf(Income("salary", "隐私收入项目", Money(10000), now)),
+                settings = BookSettings(rememberedChannelIds = listOf("bank"))))
+            vm = BookViewModel(repository, clock = Clock.fixed(now, BOOK_ZONE), transfer = if (enableTransfer) BookTransfer(context, repository) else null)
             store.put("privacy", vm)
         }
-        compose.setContent { AccountBookTheme { BookApp(vm) } }
+        compose.setContent {
+            CompositionLocalProvider(LocalActivityResultRegistryOwner provides (registry ?: compose.activity)) {
+                AccountBookTheme(darkTheme = darkTheme) { BookApp(vm) }
+            }
+        }
         compose.waitForIdle()
     }
 }

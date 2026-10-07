@@ -3,16 +3,40 @@ package io.github.zyraxi21.accountbook.ui.theme
 import androidx.compose.ui.graphics.Color
 import com.microsoft.fluentui.theme.token.AliasTokens
 import com.microsoft.fluentui.theme.token.FluentAliasTokens.BrandColorTokens
+import com.microsoft.fluentui.theme.token.FluentAliasTokens.BrandBackgroundColorTokens
+import com.microsoft.fluentui.theme.token.FluentAliasTokens.NeutralForegroundColorTokens
+import com.microsoft.fluentui.theme.token.FluentColor
 import com.microsoft.fluentui.theme.token.TokenSet
 import kotlin.math.pow
 
-/** 与参考项目一样，只替换品牌色阶，保留 Fluent 的语义颜色与控件状态。 */
+/** 沿用参考项目的动态品牌色阶，深色填充降低亮度，文字强调色保持可读。 */
 internal class BookAliasTokens(seed: Int?, darkTheme: Boolean) : AliasTokens() {
     private val ramp = seed?.let { generateBrandRamp(it, if (darkTheme) 0.55f else 1f) }
     private val defaultRamp = super.brandColor
 
     override val brandColor = TokenSet<BrandColorTokens, Color> { token ->
         ramp?.getValue(token) ?: defaultRamp[token]
+    }
+
+    private val defaultBackground by lazy { super.brandBackgroundColor }
+    override val brandBackgroundColor by lazy {
+        TokenSet<BrandBackgroundColorTokens, FluentColor> { token ->
+            val original = defaultBackground[token]
+            val dark = when (token) {
+                BrandBackgroundColorTokens.BrandBackground1 -> brandColor[BrandColorTokens.Color60]
+                BrandBackgroundColorTokens.BrandBackground1Pressed,
+                BrandBackgroundColorTokens.BrandBackground1Selected -> brandColor[BrandColorTokens.Color70]
+                else -> original.dark
+            }
+            FluentColor(light = original.light, dark = dark)
+        }
+    }
+    private val defaultForeground by lazy { super.neutralForegroundColor }
+    override val neutralForegroundColor by lazy {
+        TokenSet<NeutralForegroundColorTokens, FluentColor> { token ->
+            val original = defaultForeground[token]
+            if (token == NeutralForegroundColorTokens.ForegroundOnColor) FluentColor(original.light, Color.White) else original
+        }
     }
 }
 

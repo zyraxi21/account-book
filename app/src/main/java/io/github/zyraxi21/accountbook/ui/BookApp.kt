@@ -8,19 +8,19 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -34,6 +34,7 @@ import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.data.transfer.ExportFormat
 import io.github.zyraxi21.accountbook.domain.Channel
 import io.github.zyraxi21.accountbook.domain.Income
+import io.github.zyraxi21.accountbook.domain.ImportMode
 import io.github.zyraxi21.accountbook.ui.assets.AssetEditor
 import io.github.zyraxi21.accountbook.ui.assets.AssetsScreen
 import io.github.zyraxi21.accountbook.ui.components.*
@@ -42,7 +43,10 @@ import io.github.zyraxi21.accountbook.ui.income.IncomeScreen
 import io.github.zyraxi21.accountbook.ui.income.SmsInputEditor
 import io.github.zyraxi21.accountbook.ui.settings.ChannelEditor
 import io.github.zyraxi21.accountbook.ui.settings.SettingsScreen
+import io.github.zyraxi21.accountbook.ui.settings.AboutScreen
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
 
 @Composable
 fun BookApp(vm: BookViewModel) {
@@ -55,18 +59,21 @@ fun BookApp(vm: BookViewModel) {
     val incomeDraft by vm.incomeDraft.collectAsStateWithLifecycle()
     val channelDraft by vm.channelDraft.collectAsStateWithLifecycle()
     val smsText by vm.smsText.collectAsStateWithLifecycle()
-    val message by vm.message.collectAsStateWithLifecycle()
-    val importSummary by vm.importSummary.collectAsStateWithLifecycle()
     val transferTask by vm.transferTask.collectAsStateWithLifecycle()
     val transferBusy by vm.transferBusy.collectAsStateWithLifecycle()
     val transferProgress by vm.transferProgress.collectAsStateWithLifecycle()
     val confirmReplace by vm.confirmReplace.collectAsStateWithLifecycle()
+    val chooseImportMode by vm.chooseImportMode.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
     val palette = LocalBookPalette.current
     val context = LocalContext.current
+    val resources = LocalResources.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     var tab by remember { mutableIntStateOf(0) }
+    var aboutVisible by remember { mutableStateOf(false) }
+    BackHandler(aboutVisible) { aboutVisible = false }
     var deleteAsset by remember { mutableStateOf(false) }
     var deleteIncome by remember { mutableStateOf<Income?>(null) }
     var deleteChannel by remember { mutableStateOf<Channel?>(null) }
@@ -76,12 +83,9 @@ fun BookApp(vm: BookViewModel) {
         smsPermission = granted
         if (granted) vm.setSmsEnabled(true) else vm.notifyMessage(R.string.sms_grant_failed)
     }
-    // 导出：由系统文件选择器决定保存位置，文件名与格式由发起时的任务决定。
-    // 用可变的 mime 类型承载 JSON 与 CSV，具体值在启动选择器前按任务设置。
-    var exportMime by remember { mutableStateOf(ExportFormat.JSON.mimeType) }
-    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(exportMime)) { uri ->
-        vm.completeExport(uri)
-    }
+    // 每个格式使用固定 MIME 的独立合约，避免重组尚未更新合约就启动旧格式选择器。
+    val jsonLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(ExportFormat.JSON.mimeType), vm::completeExport)
+    val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(ExportFormat.CSV.mimeType), vm::completeExport)
     // 导入：只接受 JSON/CSV；文件名用于在扩展名不可靠时判断内容格式。
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         vm.completeImport(uri, displayName(context, uri))
@@ -89,8 +93,8 @@ fun BookApp(vm: BookViewModel) {
     LaunchedEffect(transferTask) {
         when (val task = transferTask) {
             is TransferTask.Export -> {
-                exportMime = task.format.mimeType
-                exportLauncher.launch("${task.format.baseName}.${task.format.extension}")
+                val name = "${task.format.baseName}.${task.format.extension}"
+                if (task.format == ExportFormat.JSON) jsonLauncher.launch(name) else csvLauncher.launch(name)
             }
             is TransferTask.Import -> importLauncher.launch(arrayOf("application/json", "text/csv", "text/comma-separated-values", "text/plain"))
             null -> Unit
@@ -108,83 +112,98 @@ fun BookApp(vm: BookViewModel) {
     LaunchedEffect(hidden) {
         if (hidden) { focus.clearFocus(force = true); keyboard?.hide() }
     }
-    val summary = importSummary
-    val messageText = message?.let { template ->
-        if (summary != null && summary.template == template) {
-            stringResource(template, summary.channels, summary.snapshots, summary.incomes)
-        } else {
-            // 空文件也可能解析成功，此时用"没有可写入记录"代替条数说明。
-            if (summary != null && summary.channels + summary.snapshots + summary.incomes == 0) {
-                stringResource(R.string.import_nothing_to_write)
-            } else stringResource(template)
+    LaunchedEffect(vm, snackbar, resources) {
+        vm.message.filterNotNull().collect { template ->
+            val summary = vm.importSummary.value
+            val text = when {
+                summary?.template == R.string.import_done_merge && summary.channels + summary.snapshots + summary.incomes == 0 ->
+                    resources.getString(R.string.import_nothing_to_write)
+                summary != null && summary.template == template -> resources.getString(template, summary.channels, summary.snapshots, summary.incomes)
+                else -> resources.getString(template)
+            }
+            vm.dismissMessage()
+            snackbar.currentSnackbarData?.dismiss()
+            launch { snackbar.showSnackbar(text, withDismissAction = true) }
         }
     }
-    Column(Modifier.fillMaxSize().background(palette.background), horizontalAlignment = Alignment.CenterHorizontally) {
-        BookTopBar(hidden, vm::togglePrivacy)
-        Column(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
-            if (hidden && !state.loading && state.storageError == null) {
-                BookText(stringResource(R.string.privacy_hint), Modifier.padding(horizontal = 20.dp, vertical = 12.dp), 13.sp, color = palette.secondary)
-            }
-            if (messageText != null) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp).semantics { liveRegion = LiveRegionMode.Polite },
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BookText(messageText, Modifier.weight(1f), 14.sp, color = palette.brand)
-                    Button(onClick = vm::dismissMessage, text = stringResource(R.string.close), style = ButtonStyle.OutlinedButton)
+    val modalVisible = chooseImportMode || confirmReplace || permissionExplanation ||
+        (!hidden && (assetDraft != null || incomeDraft != null || channelDraft != null || smsText != null ||
+            deleteAsset || deleteIncome != null || deleteChannel != null))
+    CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots) {
+        Column(Modifier.fillMaxSize().background(palette.background), horizontalAlignment = Alignment.CenterHorizontally) {
+            BookTopBar(hidden, vm::togglePrivacy, if (aboutVisible) R.string.about_title else R.string.app_name)
+            Column(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
+                if (hidden && !state.loading && state.storageError == null) {
+                    BookText(stringResource(R.string.privacy_hint), Modifier.padding(horizontal = 20.dp, vertical = 12.dp), 13.sp, color = palette.secondary)
                 }
-            }
-            Box(Modifier.weight(1f)) {
-                when {
-                    state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { BookText(stringResource(R.string.loading)) }
-                    state.storageError != null -> Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        SectionHeading(stringResource(R.string.storage_error_title), stringResource(state.storageError!!.resource()))
-                        BookText(stringResource(R.string.storage_error_hint), size = 14.sp, color = palette.secondary)
-                        Button(onClick = vm::reload, text = stringResource(R.string.retry))
+                Box(Modifier.weight(1f)) {
+                    when {
+                        state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { BookText(stringResource(R.string.loading)) }
+                        state.storageError != null -> Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            SectionHeading(stringResource(R.string.storage_error_title), stringResource(state.storageError!!.resource()))
+                            BookText(stringResource(R.string.storage_error_hint), size = 14.sp, color = palette.secondary)
+                            Button(onClick = vm::reload, text = stringResource(R.string.retry))
+                        }
+                        aboutVisible -> AboutScreen(onBack = { aboutVisible = false })
+                        tab == 0 -> AssetsScreen(state.data, month, hidden, busy, { vm.moveMonth(-1) }, { vm.moveMonth(1) },
+                            vm::currentMonth, vm::openAssets, { deleteAsset = true }, currentMonth = vm.thisMonth,
+                            onMonthSelected = vm::selectMonth)
+                        tab == 1 -> IncomeScreen(state.data, hidden, busy, { vm.openIncome() }, vm::openSmsInput,
+                            { vm.openIncome(it) }, { deleteIncome = it })
+                        else -> SettingsScreen(state.data, hidden, busy || transferBusy, smsPermission, transferEnabled = vm.transferAvailable && !hidden && state.storageError == null,
+                            transferProgress = transferProgress,
+                            onSmsChange = { enabled ->
+                                if (!enabled || smsPermission) vm.setSmsEnabled(enabled) else permissionExplanation = true
+                            },
+                            onPermissionSettings = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.fromParts("package", context.packageName, null))) },
+                            onAddChannel = { vm.openChannel() }, onRename = { vm.openChannel(it) }, onDelete = { deleteChannel = it },
+                            onExportJson = { vm.startExport(ExportFormat.JSON) },
+                            onExportCsv = { vm.startExport(ExportFormat.CSV) },
+                            onImport = vm::requestImport, onHideOnStartup = vm::setHideOnStartup,
+                            onAllowScreenshots = vm::setAllowScreenshots, onAbout = { aboutVisible = true })
                     }
-                    tab == 0 -> AssetsScreen(state.data, month, hidden, busy, { vm.moveMonth(-1) }, { vm.moveMonth(1) },
-                        vm::currentMonth, vm::openAssets, { deleteAsset = true })
-                    tab == 1 -> IncomeScreen(state.data, hidden, busy, { vm.openIncome() }, vm::openSmsInput,
-                        { vm.openIncome(it) }, { deleteIncome = it })
-                    else -> SettingsScreen(state.data, hidden, busy, smsPermission, transferEnabled = !hidden && state.storageError == null,
-                        transferProgress = transferProgress,
-                        onSmsChange = { enabled ->
-                            if (!enabled || smsPermission) vm.setSmsEnabled(enabled) else permissionExplanation = true
-                        },
-                        onPermissionSettings = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.fromParts("package", context.packageName, null))) },
-                        onAddChannel = { vm.openChannel() }, onRename = { vm.openChannel(it) }, onDelete = { deleteChannel = it },
-                        onExportJson = { vm.startExport(ExportFormat.JSON) },
-                        onExportCsv = { vm.startExport(ExportFormat.CSV) },
-                        onImport = vm::requestImport)
+                    if (!modalVisible) BookSnackbarHost(Modifier.align(Alignment.BottomCenter))
                 }
             }
+            BookBottomBar(selectedIndex = tab, onSelect = { aboutVisible = false; tab = it })
         }
-        BookBottomBar(selectedIndex = tab, onSelect = { tab = it })
-    }
-    if (!hidden && state.storageError == null) {
-        assetDraft?.let { AssetEditor(it, vm, busy, messageText) }
-        incomeDraft?.let { IncomeEditor(it, vm, busy, messageText, editingExisting = state.data.incomes.any { income -> income.id == it.id }) }
-        channelDraft?.let { ChannelEditor(it, vm, busy, messageText) }
-        smsText?.let { SmsInputEditor(it, vm, busy, messageText) }
-        if (deleteAsset) ConfirmDialog(stringResource(R.string.delete_record_title), stringResource(R.string.delete_asset_hint), busy,
-            { deleteAsset = false }, { deleteAsset = false; vm.deleteAsset() })
-        deleteIncome?.let { income -> ConfirmDialog(stringResource(R.string.delete_record_title), stringResource(R.string.delete_income_hint), busy,
-            { deleteIncome = null }, { deleteIncome = null; vm.deleteIncome(income.id) }) }
-        deleteChannel?.let { channel -> ConfirmDialog(stringResource(R.string.delete_channel_title), stringResource(R.string.delete_channel_hint), busy,
-            { deleteChannel = null }, { deleteChannel = null; vm.deleteChannel(channel.id) }) }
-    }
-    if (confirmReplace) {
-        EditorDialog(stringResource(R.string.import_replace_title), busy = transferBusy, onClose = vm::cancelImport,
-            saveLabel = stringResource(R.string.import_confirm_replace), onSave = vm::startImportAfterConfirm) {
-            BookText(stringResource(R.string.import_replace_message))
+        if (!hidden && state.storageError == null) {
+            assetDraft?.let { AssetEditor(it, vm, busy) }
+            incomeDraft?.let { IncomeEditor(it, vm, busy, editingExisting = state.data.incomes.any { income -> income.id == it.id }) }
+            channelDraft?.let { ChannelEditor(it, vm, busy) }
+            smsText?.let { SmsInputEditor(it, vm, busy) }
+            if (deleteAsset) ConfirmDialog(stringResource(R.string.delete_record_title), stringResource(R.string.delete_asset_hint), busy,
+                { deleteAsset = false }, { deleteAsset = false; vm.deleteAsset() })
+            deleteIncome?.let { income -> ConfirmDialog(stringResource(R.string.delete_record_title), stringResource(R.string.delete_income_hint), busy,
+                { deleteIncome = null }, { deleteIncome = null; vm.deleteIncome(income.id) }) }
+            deleteChannel?.let { channel -> ConfirmDialog(stringResource(R.string.delete_channel_title), stringResource(R.string.delete_channel_hint), busy,
+                { deleteChannel = null }, { deleteChannel = null; vm.deleteChannel(channel.id) }) }
         }
-    }
-    if (permissionExplanation) {
-        EditorDialog(stringResource(R.string.sms_permission_required), busy = false, onClose = { permissionExplanation = false },
-            saveLabel = stringResource(R.string.request_permission), onSave = {
-                permissionExplanation = false
-                permissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
-            }) { BookText(stringResource(R.string.sms_permission_explanation)) }
+        if (chooseImportMode) {
+            EditorDialog(stringResource(R.string.import_choose_title), busy = transferBusy, onClose = vm::cancelImport,
+                saveLabel = stringResource(R.string.import_merge_button), onSave = { vm.chooseImport(ImportMode.MERGE) }) {
+                BookText(stringResource(R.string.import_merge_hint))
+                LedgerDivider()
+                BookText(stringResource(R.string.import_replace_hint))
+                Button(onClick = { vm.chooseImport(ImportMode.REPLACE) }, text = stringResource(R.string.import_confirm_replace),
+                    style = ButtonStyle.OutlinedButton, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
+            }
+        }
+        if (confirmReplace) {
+            EditorDialog(stringResource(R.string.import_replace_title), busy = transferBusy, onClose = vm::cancelImport,
+                saveLabel = stringResource(R.string.import_confirm_replace), onSave = vm::startImportAfterConfirm) {
+                BookText(stringResource(R.string.import_replace_message))
+            }
+        }
+        if (permissionExplanation) {
+            EditorDialog(stringResource(R.string.sms_permission_required), busy = false, onClose = { permissionExplanation = false },
+                saveLabel = stringResource(R.string.request_permission), onSave = {
+                    permissionExplanation = false
+                    permissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
+                }) { BookText(stringResource(R.string.sms_permission_explanation)) }
+        }
     }
 }
 

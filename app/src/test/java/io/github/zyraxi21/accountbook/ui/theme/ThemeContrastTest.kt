@@ -2,6 +2,8 @@ package io.github.zyraxi21.accountbook.ui.theme
 
 import androidx.compose.ui.graphics.Color
 import com.microsoft.fluentui.theme.token.FluentAliasTokens.BrandColorTokens
+import com.microsoft.fluentui.theme.token.FluentAliasTokens.BrandBackgroundColorTokens
+import com.microsoft.fluentui.theme.token.FluentAliasTokens.NeutralForegroundColorTokens
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -51,6 +53,19 @@ class ThemeContrastTest {
             assertEquals(!dark, useDarkSystemBarIcons(palette.surface))
             for (background in listOf(palette.topBar, palette.surface)) {
                 val foreground = if (useDarkSystemBarIcons(background)) Color.Black else Color.White
+                assertContrast(foreground, background)
+            }
+        }
+    }
+
+    @Test fun darkAccentButtonsAreSubduedAndReadableInEveryState() {
+        for (seed in seeds + listOf<Int?>(null)) {
+            val tokens = BookAliasTokens(seed, true)
+            val foreground = tokens.neutralForegroundColor[NeutralForegroundColorTokens.ForegroundOnColor].dark
+            for (state in listOf(BrandBackgroundColorTokens.BrandBackground1,
+                BrandBackgroundColorTokens.BrandBackground1Pressed, BrandBackgroundColorTokens.BrandBackground1Selected)) {
+                val background = tokens.brandBackgroundColor[state].dark
+                assertTrue("深色填充按钮不应使用高亮品牌色阶", relativeLuminance(background) < 0.15)
                 assertContrast(foreground, background)
             }
         }

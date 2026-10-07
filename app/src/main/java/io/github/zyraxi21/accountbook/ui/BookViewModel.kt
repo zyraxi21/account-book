@@ -30,7 +30,7 @@ data class ChannelDraft(val id: String? = null, val name: String = "")
 /** 导入导出任务。界面只在同一时刻保留一个，避免重复打开系统文件选择器。 */
 sealed interface TransferTask {
     data class Export(val format: ExportFormat) : TransferTask
-    data class Import(val request: ImportRequest) : TransferTask
+    data class Import(val request: ImportRequest, val mode: ImportMode) : TransferTask
 }
 
 /** 导入完成后的说明文案：模板里带有实际写入的条数。 */
@@ -72,9 +72,14 @@ class BookViewModel(
     val transferProgress = _transferProgress.asStateFlow()
     private val _confirmReplace = MutableStateFlow(false)
     val confirmReplace = _confirmReplace.asStateFlow()
+    private val _chooseImportMode = MutableStateFlow(false)
+    val chooseImportMode = _chooseImportMode.asStateFlow()
     private val _importSummary = MutableStateFlow<ImportSummary?>(null)
     val importSummary = _importSummary.asStateFlow()
     private var observation: Job? = null
+    private var privacyInitialized = false
+    private var privacyTouched = false
+    val thisMonth: YearMonth get() = YearMonth.now(clock)
 
     init { reload() }
 
@@ -83,7 +88,13 @@ class BookViewModel(
         _state.value = _state.value.copy(loading = true, storageError = null)
         observation = viewModelScope.launch {
             try {
-                repository.observeBook().collect { _state.value = BookUiState(loading = false, data = it) }
+                repository.observeBook().collect {
+                    if (!privacyInitialized) {
+                        if (!privacyTouched) _privacyHidden.value = it.settings.hideOnStartup
+                        privacyInitialized = true
+                    }
+                    _state.value = BookUiState(loading = false, data = it)
+                }
             } catch (error: CancellationException) { throw error
             } catch (error: Exception) {
                 _state.value = _state.value.copy(loading = false, storageError = (error as? BookException)?.error ?: BookError.STORAGE_UNAVAILABLE)
@@ -91,10 +102,11 @@ class BookViewModel(
         }
     }
 
-    fun togglePrivacy() { _privacyHidden.value = !_privacyHidden.value; _message.value = null; _importSummary.value = null }
-    fun hidePrivateData() { _privacyHidden.value = true; _message.value = null; _importSummary.value = null }
-    fun moveMonth(delta: Long) { _selectedMonth.value = _selectedMonth.value.plusMonths(delta) }
-    fun currentMonth() { _selectedMonth.value = YearMonth.now(clock) }
+    fun togglePrivacy() { privacyTouched = true; _privacyHidden.value = !_privacyHidden.value; dismissMessage() }
+    fun hidePrivateData() { privacyTouched = true; _privacyHidden.value = true; dismissMessage() }
+    fun moveMonth(delta: Long) { _selectedMonth.value = minOf(_selectedMonth.value.plusMonths(delta), thisMonth) }
+    fun selectMonth(month: YearMonth) { _selectedMonth.value = minOf(month, thisMonth) }
+    fun currentMonth() { _selectedMonth.value = thisMonth }
     fun dismissMessage() { _message.value = null; _importSummary.value = null }
     fun notifyMessage(resource: Int) { _message.value = resource; _importSummary.value = null }
 
@@ -134,7 +146,7 @@ class BookViewModel(
                 ChannelBalance(it.channelId, it.name, Money.parse(it.amount))
             }, Money.parse(draft.liability.ifBlank { "0" }))
             repository.saveAsset(snapshot, draft.originalMonth)
-            _selectedMonth.value = snapshot.month
+            _selectedMonth.value = minOf(snapshot.month, thisMonth)
             _assetDraft.value = null
         }
     }
@@ -187,7 +199,12 @@ class BookViewModel(
         }
     }
     fun deleteChannel(id: String) { if (allowEdit()) perform(R.string.deleted) { repository.deleteChannel(id) } }
-    fun setSmsEnabled(enabled: Boolean) { perform { repository.setSmsAutoImport(enabled) } }
+    fun setSmsEnabled(enabled: Boolean) { saveSetting { repository.setSmsAutoImport(enabled) } }
+    fun setHideOnStartup(enabled: Boolean) { saveSetting { repository.setHideOnStartup(enabled) } }
+    fun setAllowScreenshots(enabled: Boolean) { saveSetting { repository.setAllowScreenshots(enabled) } }
+    private fun saveSetting(action: suspend () -> Unit) {
+        if (!_state.value.loading && _state.value.storageError == null) perform(successMessage = null, action = action)
+    }
 
     // --- 导入导出 ---------------------------------------------------------
     // 隐私隐藏时账务内容不可见，也不允许把这些内容写出应用；导出与导入都要求先显示数据。
@@ -198,9 +215,9 @@ class BookViewModel(
         _transferTask.value = TransferTask.Export(format)
     }
 
-    fun startImport() {
+    fun startImport(mode: ImportMode = ImportMode.MERGE) {
         if (!allowTransfer()) return
-        _transferTask.value = TransferTask.Import(ImportRequest(android.net.Uri.EMPTY, ""))
+        _transferTask.value = TransferTask.Import(ImportRequest(android.net.Uri.EMPTY, ""), mode)
     }
 
     /** 用户取消系统文件选择器时调用，静默收尾，不产生提示。 */
@@ -232,13 +249,13 @@ class BookViewModel(
         _transferProgress.value = R.string.import_reading
         viewModelScope.launch {
             try {
-                val outcome = channel.import(ImportRequest(uri, displayName))
+                val outcome = channel.import(ImportRequest(uri, displayName), task.mode)
                 val template = when (outcome.mode) {
                     ImportMode.MERGE -> R.string.import_done_merge
                     ImportMode.REPLACE -> R.string.import_done_replace
                 }
-                _message.value = template
                 _importSummary.value = ImportSummary(template, outcome.channels, outcome.snapshots, outcome.incomes)
+                _message.value = template
                 reassertPrivacy()
             } catch (error: CancellationException) { throw error
             } catch (error: Exception) { _message.value = (error as? BookException)?.error?.resource() ?: R.string.error_import_malformed
@@ -257,16 +274,20 @@ class BookViewModel(
 
     private fun allowTransfer(): Boolean {
         if (_privacyHidden.value) { _message.value = R.string.privacy_reveal_first; return false }
-        if (_state.value.loading || _state.value.storageError != null || _busy.value || _transferBusy.value) return false
+        if (_state.value.loading || _state.value.storageError != null || _busy.value || _transferBusy.value || _transferTask.value != null) return false
         if (transfer == null) { _message.value = R.string.error_export_unavailable; return false }
         return true
     }
 
-    fun requestImport() { if (allowTransfer()) _confirmReplace.value = true }
-    fun cancelImport() { _confirmReplace.value = false }
-    fun startImportAfterConfirm() { _confirmReplace.value = false; startImport() }
+    fun requestImport() { if (allowTransfer()) _chooseImportMode.value = true }
+    fun cancelImport() { _chooseImportMode.value = false; _confirmReplace.value = false }
+    fun chooseImport(mode: ImportMode) {
+        _chooseImportMode.value = false
+        if (mode == ImportMode.REPLACE) _confirmReplace.value = true else startImport(mode)
+    }
+    fun startImportAfterConfirm() { _confirmReplace.value = false; startImport(ImportMode.REPLACE) }
 
-    private fun perform(successMessage: Int = R.string.saved, action: suspend () -> Unit) {
+    private fun perform(successMessage: Int? = R.string.saved, action: suspend () -> Unit) {
         if (_busy.value) return
         _busy.value = true
         _message.value = null

@@ -111,6 +111,7 @@ fun formatDateTime(time: Instant): String {
 @Composable
 fun DateTimeField(time: Instant, onChange: (Instant) -> Unit, label: String) {
     val context = LocalContext.current
+    val allowScreenshots = LocalAllowScreenshots.current
     var pickerVisible by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         BookText(label, size = 14.sp, color = LocalBookPalette.current.secondary)
@@ -118,7 +119,7 @@ fun DateTimeField(time: Instant, onChange: (Instant) -> Unit, label: String) {
             text = formatDateTime(time), contentDescription = stringResource(R.string.select_datetime))
     }
     if (pickerVisible) {
-        DisposableEffect(context) {
+        DisposableEffect(context, allowScreenshots) {
             val dialog = DateTimePickerDialog(context, DateTimePickerDialog.Mode.DATE_TIME, dateTime = time.atZone(BOOK_ZONE))
             dialog.onDateTimePickedListener = object : DateTimePickerDialog.OnDateTimePickedListener {
                 override fun onDateTimePicked(dateTime: ZonedDateTime, duration: Duration) {
@@ -128,7 +129,8 @@ fun DateTimeField(time: Instant, onChange: (Instant) -> Unit, label: String) {
             }
             dialog.setOnDismissListener { pickerVisible = false }
             dialog.show()
-            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            if (allowScreenshots) dialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                else dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
             onDispose { dialog.setOnDismissListener(null); dialog.dismiss() }
         }
     }
@@ -136,11 +138,11 @@ fun DateTimeField(time: Instant, onChange: (Instant) -> Unit, label: String) {
 
 @Composable
 fun EditorDialog(title: String, busy: Boolean, onClose: () -> Unit, saveLabel: String, onSave: () -> Unit,
-                 message: String? = null, content: @Composable ColumnScope.() -> Unit) {
+                 content: @Composable ColumnScope.() -> Unit) {
     val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
     val maxHeight = (windowHeight - 72.dp).coerceAtLeast(200.dp)
     Dialog(onDismiss = onClose, dialogProperties = DialogProperties(dismissOnBackPress = !busy,
-        dismissOnClickOutside = !busy, securePolicy = SecureFlagPolicy.SecureOn, usePlatformDefaultWidth = false)) {
+        dismissOnClickOutside = !busy, securePolicy = SecureFlagPolicy.Inherit, usePlatformDefaultWidth = false)) {
         // 同时禁止控件内部把输入值写入系统保存状态，敏感草稿只由 ViewModel 持有。
         CompositionLocalProvider(LocalSaveableStateRegistry provides null) {
             Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = maxHeight).imePadding().padding(24.dp),
@@ -148,13 +150,13 @@ fun EditorDialog(title: String, busy: Boolean, onClose: () -> Unit, saveLabel: S
                 BookText(title, size = 22.sp, weight = FontWeight.SemiBold)
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
-                if (message != null) BookText(message, size = 14.sp, color = LocalBookPalette.current.negative)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(onClick = onClose, modifier = Modifier.weight(1f).heightIn(min = 48.dp), style = ButtonStyle.OutlinedButton,
                         text = stringResource(R.string.cancel), enabled = !busy)
                     Button(onClick = onSave, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         text = if (busy) stringResource(R.string.saving) else saveLabel, enabled = !busy)
                 }
+                BookSnackbarHost()
             }
         }
     }

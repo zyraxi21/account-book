@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [ChannelEntity::class, MonthlyAssetEntity::class, ChannelBalanceEntity::class,
         IncomeEntity::class, SmsImportReceiptEntity::class, AppSettingsEntity::class, RememberedChannelEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class BookDatabase : RoomDatabase() {
@@ -19,5 +19,13 @@ abstract class BookDatabase : RoomDatabase() {
 val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE app_settings ADD COLUMN lastExportAtMillis INTEGER")
+    }
+}
+
+/** 保留原账本，旧版默认继续在启动时隐藏并禁止前台截图。 */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE app_settings ADD COLUMN hideOnStartup INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("ALTER TABLE app_settings ADD COLUMN allowScreenshots INTEGER NOT NULL DEFAULT 0")
     }
 }

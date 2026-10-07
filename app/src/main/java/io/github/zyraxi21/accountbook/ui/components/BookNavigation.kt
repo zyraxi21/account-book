@@ -52,7 +52,7 @@ private object PrivacyButtonTokens : ButtonTokens() {
 
 /** 背景先铺满窗口，再对顶栏内容应用状态栏、桌面标题栏和横向挖孔边衬。 */
 @Composable
-fun BookTopBar(hidden: Boolean, onPrivacyClick: () -> Unit) {
+fun BookTopBar(hidden: Boolean, onPrivacyClick: () -> Unit, @StringRes title: Int = R.string.app_name) {
     val palette = LocalBookPalette.current
     Box(
         Modifier.fillMaxWidth().background(palette.topBar)
@@ -60,18 +60,17 @@ fun BookTopBar(hidden: Boolean, onPrivacyClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         AppBar(
-            title = stringResource(R.string.app_name),
+            title = stringResource(title),
             style = FluentStyle.Brand,
             bottomBorder = false,
-            modifier = Modifier.widthIn(max = 840.dp).fillMaxWidth(),
+            modifier = Modifier.widthIn(max = 840.dp).fillMaxWidth().padding(start = 20.dp, end = 8.dp),
             rightAccessoryView = {
                 Button(
                     onClick = onPrivacyClick,
-                    text = stringResource(R.string.privacy),
                     style = ButtonStyle.TextButton,
                     icon = ImageVector.vectorResource(if (hidden) R.drawable.ic_eye else R.drawable.ic_eye_off),
                     contentDescription = stringResource(if (hidden) R.string.privacy_show else R.string.privacy_hide),
-                    modifier = Modifier.padding(end = 12.dp).heightIn(min = 48.dp),
+                    modifier = Modifier.size(48.dp),
                     buttonTokens = PrivacyButtonTokens,
                 )
             },

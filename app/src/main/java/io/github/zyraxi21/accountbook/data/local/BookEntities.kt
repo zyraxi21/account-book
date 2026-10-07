@@ -1,6 +1,7 @@
 package io.github.zyraxi21.accountbook.data.local
 
 import androidx.room.Embedded
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -63,6 +64,8 @@ data class AppSettingsEntity(
     val smsAutoImportEnabled: Boolean = false,
     /** 最近一次成功导出的时间戳，仅用于界面提示。 */
     val lastExportAtMillis: Long? = null,
+    @ColumnInfo(defaultValue = "1") val hideOnStartup: Boolean = true,
+    @ColumnInfo(defaultValue = "0") val allowScreenshots: Boolean = false,
 )
 
 @Entity(

@@ -14,6 +14,7 @@ import org.junit.Before
 import org.junit.Test
 import java.time.Clock
 import java.time.Instant
+import java.time.YearMonth
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BookViewModelTest {
@@ -74,5 +75,41 @@ class BookViewModelTest {
         assertEquals(IncomeSource.SMS, vm.incomeDraft.value!!.source)
         assertNotNull(vm.incomeDraft.value!!.fingerprint)
         assertNull(vm.smsText.value)
+    }
+
+    @Test fun monthNavigationStopsAtCurrentMonthAndWorksAcrossYears() {
+        vm.moveMonth(1)
+        assertEquals(YearMonth.of(2026, 10), vm.selectedMonth.value)
+        vm.moveMonth(-10)
+        assertEquals(YearMonth.of(2025, 12), vm.selectedMonth.value)
+        vm.moveMonth(1)
+        assertEquals(YearMonth.of(2026, 1), vm.selectedMonth.value)
+        vm.moveMonth(100)
+        assertEquals(vm.thisMonth, vm.selectedMonth.value)
+        vm.selectMonth(YearMonth.of(2027, 1))
+        assertEquals(vm.thisMonth, vm.selectedMonth.value)
+        vm.selectMonth(YearMonth.of(2025, 12))
+        assertEquals(YearMonth.of(2025, 12), vm.selectedMonth.value)
+    }
+
+    @Test fun privacySettingsSaveImmediatelyWithoutSavedMessage() {
+        vm.setHideOnStartup(false)
+        assertFalse(vm.state.value.data.settings.hideOnStartup)
+        assertNull(vm.message.value)
+        vm.setAllowScreenshots(true)
+        assertTrue(vm.state.value.data.settings.allowScreenshots)
+        assertNull(vm.message.value)
+        // 更改下次启动偏好不会立即展示已隐藏的账务。
+        assertTrue(vm.privacyHidden.value)
+    }
+
+    @Test fun disablingStartupHideOnlyRevealsOnFirstLoadAndStillHidesInBackground() {
+        val other = BookViewModel(ReadOnlyBookRepository(BookData(settings = BookSettings(hideOnStartup = false))), clock = clock)
+        store.put("startup", other)
+        assertFalse(other.privacyHidden.value)
+        other.hidePrivateData()
+        assertTrue(other.privacyHidden.value)
+        other.reload()
+        assertTrue(other.privacyHidden.value)
     }
 }
