@@ -53,7 +53,7 @@ class ActivitySecurityTest {
         assertTrue("活动状态应在限定时间内更新", reached)
     }
 
-    @Test fun backgroundAndRecreationHideDataAndScreenshotProtectionIsEnabled() = runBlocking<Unit> {
+    @Test fun automaticHideProtectsBackgroundAndRecreationPreservesUserChoice() = runBlocking<Unit> {
         val application = ApplicationProvider.getApplicationContext<AccountBookApplication>()
         val repository = application.container.repository
         val original = repository.observeBook().first().settings
@@ -85,8 +85,58 @@ class ActivitySecurityTest {
                 scenario.moveToState(Lifecycle.State.CREATED)
                 scenario.moveToState(Lifecycle.State.RESUMED)
                 scenario.onActivity { assertTrue(ViewModelProvider(it)[BookViewModel::class.java].privacyHidden.value) }
+                scenario.onActivity { ViewModelProvider(it)[BookViewModel::class.java].togglePrivacy() }
                 scenario.recreate()
+                scenario.onActivity { assertFalse(ViewModelProvider(it)[BookViewModel::class.java].privacyHidden.value) }
+            }
+        } finally {
+            repository.setHideOnStartup(original.hideOnStartup)
+            repository.setAllowScreenshots(original.allowScreenshots)
+        }
+    }
+
+    @Test fun disabledAutomaticHideRestoresVisibilityAndDraftUntilActualColdStart() = runBlocking<Unit> {
+        val application = ApplicationProvider.getApplicationContext<AccountBookApplication>()
+        val repository = application.container.repository
+        val original = repository.observeBook().first().settings
+        try {
+            repository.setHideOnStartup(false)
+            repository.setAllowScreenshots(false)
+            val intent = Intent(application, MainActivity::class.java)
+            ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+                awaitActivity(scenario) { !ViewModelProvider(it)[BookViewModel::class.java].state.value.loading }
+                scenario.onActivity {
+                    val vm = ViewModelProvider(it)[BookViewModel::class.java]
+                    assertFalse(vm.privacyHidden.value)
+                    vm.openIncome()
+                    vm.updateIncome(title = "生命周期测试草稿", amount = "10.20")
+                }
+                scenario.moveToState(Lifecycle.State.CREATED)
+                scenario.onActivity {
+                    assertTrue(ViewModelProvider(it)[BookViewModel::class.java].privacyHidden.value)
+                    assertTrue(it.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE != 0)
+                }
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                scenario.onActivity {
+                    val vm = ViewModelProvider(it)[BookViewModel::class.java]
+                    assertFalse(vm.privacyHidden.value)
+                    assertEquals("生命周期测试草稿", vm.incomeDraft.value!!.title)
+                }
+                scenario.recreate()
+                scenario.onActivity {
+                    val vm = ViewModelProvider(it)[BookViewModel::class.java]
+                    assertFalse(vm.privacyHidden.value)
+                    assertEquals("10.20", vm.incomeDraft.value!!.amount)
+                    vm.hidePrivateData()
+                }
+                scenario.moveToState(Lifecycle.State.CREATED)
+                scenario.moveToState(Lifecycle.State.RESUMED)
                 scenario.onActivity { assertTrue(ViewModelProvider(it)[BookViewModel::class.java].privacyHidden.value) }
+            }
+            // 新活动没有旧 ViewModel，相当于重新启动；此时按已保存的关闭状态显示。
+            ActivityScenario.launch<MainActivity>(intent).use { scenario ->
+                awaitActivity(scenario) { !ViewModelProvider(it)[BookViewModel::class.java].state.value.loading }
+                scenario.onActivity { assertFalse(ViewModelProvider(it)[BookViewModel::class.java].privacyHidden.value) }
             }
         } finally {
             repository.setHideOnStartup(original.hideOnStartup)

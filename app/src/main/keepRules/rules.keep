@@ -1,12 +1,4 @@
-# Add project specific R8 rules here.
-# AGP will combine all keep rule files in src/main/keepRules to pass to R8
-#
-# For more details, see
-#   https://d.android.com/r/tools/r8/keep-rules
-
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Fluent 发布包保留了这两个编译期注解，其 Parcelable 实现已在库内生成。
+# 仅忽略注解本身的缺失提示，SQLCipher 与 Room 的运行时入口由各自依赖规则保护。
+-dontwarn kotlinx.android.parcel.Parcelize
+-dontwarn kotlinx.parcelize.Parcelize

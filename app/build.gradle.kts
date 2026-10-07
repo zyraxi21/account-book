@@ -16,15 +16,21 @@ android {
         minSdk = 34
         targetSdk = 37
         versionCode = 1
-        versionName = "1.0"
+        versionName = "20261007"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
         release {
+            // 自用版本沿用本机开发签名，覆盖安装保留账本和 Keystore 密钥。
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
             optimization {
-                enable = false
+                enable = true
             }
         }
     }
