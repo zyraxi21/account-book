@@ -23,7 +23,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.io.File
 import java.time.Clock
 import java.time.Instant
 import java.time.YearMonth
@@ -58,7 +57,7 @@ sealed interface UpdateUiState {
     data class Available(val release: ReleaseInfo) : UpdateUiState
     /** [progress] 为 0..100，-1 表示总量未知。 */
     data class Downloading(val progress: Int) : UpdateUiState
-    data class ReadyToInstall(val file: File) : UpdateUiState
+    data class ReadyToInstall(val downloadId: Long) : UpdateUiState
 }
 
 /** 所有敏感草稿仅存在 ViewModel 中，不写入 SavedStateHandle 或持久化 Bundle。 */
@@ -110,7 +109,6 @@ class BookViewModel(
     val updateState = _updateState.asStateFlow()
     private var startupUpdateChecked = false
     private var downloadId: Long? = null
-    private var downloadedFile: java.io.File? = null
     private var downloadPoll: Job? = null
     private val _installSettingsMissing = MutableStateFlow(false)
     private var observation: Job? = null
@@ -458,7 +456,7 @@ class BookViewModel(
         val target = downloader
         val url = release.apkUrl
         if (target == null || url == null) { notifyMessage(R.string.update_no_apk); return }
-        val id = target.enqueue(url, ApkDownloader.CURRENT_FILE_NAME)
+        val id = target.enqueue(url)
         if (id == null) { notifyMessage(R.string.update_download_failed); return }
         downloadId = id
         _updateState.value = UpdateUiState.Downloading(0)
@@ -475,8 +473,7 @@ class BookViewModel(
                 when (val state = target.query(id)) {
                     is DownloadState.Running -> _updateState.value = UpdateUiState.Downloading(state.progress)
                     is DownloadState.Completed -> {
-                        downloadedFile = state.file
-                        _updateState.value = UpdateUiState.ReadyToInstall(state.file)
+                        _updateState.value = UpdateUiState.ReadyToInstall(state.downloadId)
                         notifyMessage(R.string.update_download_done)
                         return@launch
                     }
@@ -500,23 +497,17 @@ class BookViewModel(
         downloadPoll?.cancel()
         downloadId?.let { target?.cancel(it) }
         downloadId = null
-        downloadedFile?.let { target?.cleanup(it) }
-        downloadedFile = null
         _updateState.value = UpdateUiState.Idle
     }
 
-    /**
-     * 调起系统安装器。
-     * Android 8.0 起需要用户先授予安装未知来源应用权限，未授权时返回 false 供界面引导。
-     */
     /**
      * 调起系统安装器。Android 8.0 起需要用户先授予安装未知来源应用权限，
      * 未授权时引导至系统设置页，并明确告知需手动返回后再点安装。
      */
     fun installUpdate() {
         val target = downloader ?: return
-        val file = downloadedFile ?: return
-        when (target.install(file)) {
+        val ready = _updateState.value as? UpdateUiState.ReadyToInstall ?: return
+        when (target.install(ready.downloadId)) {
             InstallOutcome.Started -> Unit
             InstallOutcome.PermissionRequired -> {
                 // 拉起设置页；即使厂商 ROM 不响应，也提示用户手动前往开启。
