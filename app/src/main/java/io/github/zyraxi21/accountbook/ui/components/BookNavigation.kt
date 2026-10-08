@@ -8,15 +8,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -59,9 +56,8 @@ private object PrivacyButtonTokens : ButtonTokens() {
 @Composable
 fun BookTopBar(hidden: Boolean, onPrivacyClick: () -> Unit, @StringRes title: Int = R.string.app_name) {
     val palette = LocalBookPalette.current
-    val shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
     Box(
-        Modifier.fillMaxWidth().shadow(4.dp, shape).clip(shape)
+        Modifier.fillMaxWidth()
             .background(palette.accentBrush()).testTag("book_top_bar_card")
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
         contentAlignment = Alignment.Center,
