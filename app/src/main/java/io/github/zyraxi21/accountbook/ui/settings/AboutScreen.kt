@@ -19,16 +19,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.VectorPath
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.res.painterResource
 import androidx.annotation.StringRes
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -174,28 +171,16 @@ private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: Bo
     }
 }
 
-/** 复用启动图标的路径，关于页的线条与背景使用同一动态主题色。 */
+/** 复用桌面图标的前后景，在同一坐标空间中绘制渐变背景与线条。 */
 @Composable
 private fun AboutLogo() {
-    val brand = LocalBookPalette.current.brand
-    val original = ImageVector.vectorResource(R.drawable.ic_launcher_foreground)
-    val logo = remember(original, brand) {
-        ImageVector.Builder(name = "AboutAppLogo", defaultWidth = original.defaultWidth,
-            defaultHeight = original.defaultHeight, viewportWidth = original.viewportWidth,
-            viewportHeight = original.viewportHeight).apply {
-            for (index in 0 until original.root.size) {
-                val path = original.root[index] as VectorPath
-                addPath(pathData = path.pathData, pathFillType = path.pathFillType,
-                    fill = path.fill, fillAlpha = path.fillAlpha,
-                    stroke = path.stroke?.let { SolidColor(brand) }, strokeAlpha = path.strokeAlpha,
-                    strokeLineWidth = path.strokeLineWidth, strokeLineCap = path.strokeLineCap,
-                    strokeLineJoin = path.strokeLineJoin, strokeLineMiter = path.strokeLineMiter)
-            }
-        }.build()
-    }
-    Box(Modifier.size(72.dp).clip(RoundedCornerShape(16.dp)).background(brand)
+    Box(Modifier.size(72.dp).clip(RoundedCornerShape(16.dp))
         .testTag("about_app_icon"), contentAlignment = Alignment.Center) {
-        Image(logo, contentDescription = null, modifier = Modifier.requiredSize(108.dp))
+        // 与自适应图标一样，108dp 图层由中间的 72dp 视口裁切。
+        Box(Modifier.requiredSize(108.dp)) {
+            Image(painterResource(R.drawable.ic_launcher_background), contentDescription = null, modifier = Modifier.fillMaxSize())
+            Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null, modifier = Modifier.fillMaxSize())
+        }
     }
 }
 

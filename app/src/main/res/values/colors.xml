@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 取自 zyraxi.svg，供桌面图标与关于页共用。 -->
+    <color name="book_logo_gradient_start">#F28F28</color>
+    <color name="book_logo_gradient_end">#FC644F</color>
     <!-- 与 Fluent CanvasBackground 一致，避免冷启动首帧的背景跳变。 -->
     <color name="book_window_background">#F5F5F5</color>
     <color name="book_picker_surface">#FFFFFF</color>
