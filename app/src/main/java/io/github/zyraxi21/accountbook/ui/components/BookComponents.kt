@@ -169,6 +169,7 @@ fun bookDialogMaxHeight(): Dp = with(LocalDensity.current) {
 fun EditorDialog(title: String, busy: Boolean, onClose: () -> Unit, saveLabel: String, onSave: () -> Unit,
                  /** 弹窗内是否自带提示宿主。外层已有宿主时应传 false，否则同一条提示会显示两次。 */
                  snackbarHost: Boolean = true,
+                 saveEnabled: Boolean = true, cancelLabel: String? = null,
                  content: @Composable ColumnScope.() -> Unit) {
     val maxHeight = bookDialogMaxHeight()
     val maxWidth = bookDialogMaxWidth()
@@ -183,9 +184,9 @@ fun EditorDialog(title: String, busy: Boolean, onClose: () -> Unit, saveLabel: S
                     verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(onClick = onClose, modifier = Modifier.weight(1f).heightIn(min = 48.dp), style = ButtonStyle.OutlinedButton,
-                        text = stringResource(R.string.cancel), enabled = !busy)
+                        text = cancelLabel ?: stringResource(R.string.cancel), enabled = !busy)
                     Button(onClick = onSave, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                        text = if (busy) stringResource(R.string.saving) else saveLabel, enabled = !busy)
+                        text = if (busy) stringResource(R.string.saving) else saveLabel, enabled = !busy && saveEnabled)
                 }
                 if (snackbarHost) BookSnackbarHost()
             }

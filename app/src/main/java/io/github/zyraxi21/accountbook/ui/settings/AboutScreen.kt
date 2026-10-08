@@ -52,7 +52,6 @@ import io.github.zyraxi21.accountbook.domain.Channel
 import io.github.zyraxi21.accountbook.domain.ImportMode
 import io.github.zyraxi21.accountbook.domain.Income
 import io.github.zyraxi21.accountbook.domain.MonthlyAssetSnapshot
-import io.github.zyraxi21.accountbook.domain.ReleaseNotesFormatter
 import io.github.zyraxi21.accountbook.sms.IcbcSmsParser
 import io.github.zyraxi21.accountbook.sms.ParsedIcbcIncome
 import io.github.zyraxi21.accountbook.ui.BookViewModel
@@ -178,12 +177,6 @@ private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: Bo
         }
     }
     // 新版本弹窗与安装授权引导独立于弹层内容，避免被滚动区域裁剪。
-    when (val state = updateState) {
-        is UpdateUiState.Available -> UpdateAvailableDialog(state, vm)
-        is UpdateUiState.Downloading -> UpdateProgressDialog(state, vm)
-        is UpdateUiState.ReadyToInstall -> UpdateInstallDialog(vm)
-        else -> Unit
-    }
 }
 
 /** 复用启动图标的路径，关于页的线条与背景使用同一动态主题色。 */
@@ -237,7 +230,7 @@ private fun UpdateSection(updateState: UpdateUiState, vm: BookViewModel) {
             }
             is UpdateUiState.ReadyToInstall -> {
                 BookText(stringResource(R.string.update_download_done), size = 14.sp, color = palette.secondary)
-                Button(onClick = { installOrGuide(vm) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                Button(onClick = vm::installUpdate, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                     text = stringResource(R.string.update_install))
             }
             else -> Button(onClick = { vm.checkForUpdates() },
@@ -251,77 +244,6 @@ private fun UpdateSection(updateState: UpdateUiState, vm: BookViewModel) {
                 if (progress >= 0) stringResource(R.string.update_progress, progress)
                 else stringResource(R.string.update_progress_unknown),
                 size = 14.sp, color = palette.secondary)
-        }
-    }
-}
-
-/** 安装需要未知来源授权；未授权时引导到系统设置页，再由用户返回后点击安装。 */
-private fun installOrGuide(vm: BookViewModel) {
-    vm.installUpdate()
-}
-
-/** 新版本弹窗：展示版本号与更新说明原文，提供“稍后”与“立即下载”。 */
-@Composable
-private fun UpdateAvailableDialog(state: UpdateUiState.Available, vm: BookViewModel) {
-    val release = state.release
-    val maxHeight = bookDialogMaxHeight()
-    // Release 正文是 Markdown，按纯文本渲染前先规整掉标记符号。
-    val fallback = stringResource(R.string.update_no_notes)
-    val notes = remember(release.notes, fallback) {
-        ReleaseNotesFormatter.format(release.notes).ifEmpty { fallback }
-    }
-    EditorDialog(title = stringResource(R.string.update_available_title), busy = false,
-        onClose = { vm.dismissUpdate() }, saveLabel = stringResource(R.string.update_download_now),
-        onSave = { vm.startUpdateDownload() }, snackbarHost = false) {
-        BookText(stringResource(R.string.update_available_message, release.version.toString()),
-            size = 18.sp, weight = FontWeight.Medium)
-        if (release.apkUrl == null) {
-            BookText(stringResource(R.string.update_no_apk), size = 14.sp, color = LocalBookPalette.current.secondary)
-        } else {
-            BookText(stringResource(R.string.update_release_notes), size = 14.sp, color = LocalBookPalette.current.secondary)
-            // 更新说明按原文展示，不解析 Markdown，避免把文本当成可执行内容渲染。
-            BookText(notes, Modifier.heightIn(max = maxHeight * 0.5f)
-                .verticalScroll(rememberScrollState()), 14.sp)
-        }
-    }
-}
-
-/** 下载进度弹窗：展示百分比并允许取消。进度条使用 Fluent 控件。 */
-@Composable
-private fun UpdateProgressDialog(state: UpdateUiState.Downloading, vm: BookViewModel) {
-    EditorDialog(title = stringResource(R.string.update_downloading), busy = true,
-        onClose = { vm.cancelUpdateDownload() }, saveLabel = stringResource(R.string.update_cancel_download),
-        onSave = { vm.cancelUpdateDownload() }, snackbarHost = false) {
-        BookText(
-            if (state.progress >= 0) stringResource(R.string.update_progress, state.progress)
-            else stringResource(R.string.update_progress_unknown), size = 16.sp)
-        // 总量未知时用不确定进度样式，避免显示成 0% 造成误判。
-        if (state.progress >= 0) {
-            LinearProgressIndicator(progress = state.progress / 100f, modifier = Modifier.fillMaxWidth())
-        } else {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
-    }
-}
-
-/**
- * 下载完成后的安装弹窗。
- * 授权指引常驻显示：设置页拉起失败时用户仍能在此看到该去哪里开启，
- * 不依赖一次性的 Snackbar——从系统设置返回后弹窗仍在。
- */
-@Composable
-private fun UpdateInstallDialog(vm: BookViewModel) {
-    val settingsMissing by vm.installSettingsMissing.collectAsStateWithLifecycle()
-    EditorDialog(title = stringResource(R.string.update_download_done), busy = false,
-        onClose = { vm.dismissUpdate(); vm.clearInstallSettingsMissing() },
-        saveLabel = stringResource(R.string.update_install),
-        onSave = { vm.clearInstallSettingsMissing(); installOrGuide(vm) }, snackbarHost = false) {
-        BookText(stringResource(R.string.update_install_permission_message), size = 14.sp,
-            color = LocalBookPalette.current.secondary)
-        if (settingsMissing) {
-            // 设置页未能拉起时给出可手动执行的路径，而不是反复弹出提示。
-            BookText(stringResource(R.string.update_install_manual_path), size = 14.sp,
-                color = LocalBookPalette.current.secondary)
         }
     }
 }

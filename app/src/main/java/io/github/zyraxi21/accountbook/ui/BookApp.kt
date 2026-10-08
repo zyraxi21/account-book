@@ -44,6 +44,7 @@ import io.github.zyraxi21.accountbook.ui.settings.ChannelEditor
 import io.github.zyraxi21.accountbook.ui.settings.SettingsScreen
 import io.github.zyraxi21.accountbook.ui.settings.AboutScreen
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
+import io.github.zyraxi21.accountbook.ui.update.UpdateDialogs
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import java.time.YearMonth
@@ -64,11 +65,16 @@ fun BookApp(vm: BookViewModel) {
     val transferProgress by vm.transferProgress.collectAsStateWithLifecycle()
     val confirmReplace by vm.confirmReplace.collectAsStateWithLifecycle()
     val chooseImportMode by vm.chooseImportMode.collectAsStateWithLifecycle()
+    val updateState by vm.updateState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val palette = LocalBookPalette.current
     val context = LocalContext.current
     val resources = LocalResources.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val lifecycleState by lifecycle.currentStateFlow.collectAsState()
+    // 后台完成查询时保留结果，回到前台后才呈现更新弹窗。
+    val updateDialogVisible = lifecycleState.isAtLeast(Lifecycle.State.RESUMED) &&
+        (updateState is UpdateUiState.Available || updateState is UpdateUiState.Downloading || updateState is UpdateUiState.ReadyToInstall)
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     var tab by remember { mutableIntStateOf(0) }
@@ -126,7 +132,7 @@ fun BookApp(vm: BookViewModel) {
         }
     }
     // About弹层自带提示宿主，因此打开时收起主界面宿主，避免同一条消息出现两次。
-    val modalVisible = aboutVisible || chooseImportMode || confirmReplace || permissionExplanation ||
+    val modalVisible = aboutVisible || updateDialogVisible || chooseImportMode || confirmReplace || permissionExplanation ||
         (!hidden && (assetDraft != null || incomeDraft != null || channelDraft != null || smsText != null ||
             deleteAsset != null || deleteIncome != null || deleteChannel != null))
     CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots,
@@ -216,6 +222,7 @@ fun BookApp(vm: BookViewModel) {
         }
         // 关于页以底部弹层显示，设置页和底部导航保持可见，下滑或点击遮罩即可关闭。
         if (aboutVisible) AboutScreen(vm) { aboutVisible = false }
+        if (updateDialogVisible) UpdateDialogs(updateState, vm, snackbarHost = !aboutVisible)
     }
 }
 

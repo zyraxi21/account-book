@@ -50,7 +50,7 @@ data class ImportSummary(val template: Int, val channels: Int, val snapshots: In
 
 /**
  * 检查更新的界面状态。
- * 空闲与失败都回到 [Idle]——失败文案走 Snackbar，弹窗只用于“有新版本”这一种情况。
+ * 无更新或检查失败都回到 [Idle]；启动检查保持静默，手动检查通过 Snackbar 反馈。
  */
 sealed interface UpdateUiState {
     data object Idle : UpdateUiState
@@ -108,6 +108,7 @@ class BookViewModel(
     /** 检查更新的整体状态机；界面据此渲染按钮、进度与弹窗。 */
     private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
     val updateState = _updateState.asStateFlow()
+    private var startupUpdateChecked = false
     private var downloadId: Long? = null
     private var downloadedFile: java.io.File? = null
     private var downloadPoll: Job? = null
@@ -410,14 +411,23 @@ class BookViewModel(
         return true
     }
 
-    /**
-     * 检查更新。查不到新版本时通过 Snackbar 提示；失败时按原因分类给出可执行文案。
-     * 联网行为仅限此处，不涉及任何账务数据。
-     */
-    fun checkForUpdates() {
+    /** 每次启动检查一次；同一个 ViewModel 在配置变化后继续沿用检查结果。 */
+    fun checkForUpdatesOnStartup() {
+        if (startupUpdateChecked) return
+        startupUpdateChecked = true
+        checkForUpdates(silent = true)
+    }
+
+    /** 手动检查保留无更新和失败提示；两种入口共用后台查询及下载状态。 */
+    fun checkForUpdates() = checkForUpdates(silent = false)
+
+    private fun checkForUpdates(silent: Boolean) {
         val client = updater
         val version = currentVersion
-        if (client == null || version == null) { notifyMessage(R.string.update_check_failed); return }
+        if (client == null || version == null) {
+            if (!silent) notifyMessage(R.string.update_check_failed)
+            return
+        }
         // 已有任务在跑时不重复发起，避免并发请求触发限流。
         if (_updateState.value is UpdateUiState.Checking || _updateState.value is UpdateUiState.Downloading) return
         _updateState.value = UpdateUiState.Checking
@@ -425,12 +435,12 @@ class BookViewModel(
             when (val result = client.check(version)) {
                 is UpdateResult.UpToDate -> {
                     _updateState.value = UpdateUiState.Idle
-                    notifyMessage(result.reason.resource())
+                    if (!silent) notifyMessage(result.reason.resource())
                 }
                 is UpdateResult.Available -> _updateState.value = UpdateUiState.Available(result.release)
                 is UpdateResult.Failed -> {
                     _updateState.value = UpdateUiState.Idle
-                    notifyMessage(result.error.resource())
+                    if (!silent) notifyMessage(result.error.resource())
                 }
             }
         }

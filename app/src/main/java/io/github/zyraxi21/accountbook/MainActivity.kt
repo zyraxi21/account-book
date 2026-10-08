@@ -34,6 +34,7 @@ class MainActivity : AppCompatActivity() {
         val container = (application as AccountBookApplication).container
         bookViewModel = ViewModelProvider(this, BookViewModel.Factory(container.repository, container.smsParser,
             container.transfer, container.updater, container.downloader, container.currentVersion))[BookViewModel::class.java]
+        bookViewModel.checkForUpdatesOnStartup()
         bookViewModel.obscureInBackground()
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
