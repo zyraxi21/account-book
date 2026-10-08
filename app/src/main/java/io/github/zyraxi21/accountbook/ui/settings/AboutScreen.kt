@@ -1,9 +1,7 @@
 package io.github.zyraxi21.accountbook.ui.settings
 
-import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
-import androidx.core.net.toUri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -21,12 +19,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.VectorPath
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.vectorResource
+import androidx.annotation.StringRes
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -34,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
+import com.microsoft.fluentui.theme.token.controlTokens.ButtonSize
 import com.microsoft.fluentui.theme.token.controlTokens.SheetAccessibilityAnnouncement
 import com.microsoft.fluentui.tokenized.bottomsheet.BottomSheet
 import com.microsoft.fluentui.tokenized.progress.LinearProgressIndicator
@@ -87,7 +91,7 @@ fun AboutScreen(vm: BookViewModel, onDismiss: () -> Unit) {
         { scope.launch { sheetState.hide() }; Unit }
     }
     val updateState by vm.updateState.collectAsStateWithLifecycle()
-    val sheetHeight = with(LocalDensity.current) { (LocalWindowInfo.current.containerSize.height.toDp() * 0.88f).coerceAtMost(760.dp) }
+    val sheetHeight = with(LocalDensity.current) { (LocalWindowInfo.current.containerSize.height.toDp() * 0.88f).coerceAtMost(640.dp) }
     // Fluent 以内容函数的标识缓存测量结果；保持引用稳定，避免动画帧反复重置高度。
     val sheetContent: @Composable () -> Unit = remember(close, sheetHeight, updateState) {
         // Fluent 把手占 4dp，上下各有 8dp 内边距；正文高度与可见停靠高度对应。
@@ -131,7 +135,6 @@ fun AboutScreen(vm: BookViewModel, onDismiss: () -> Unit) {
 private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: BookViewModel,
                          modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val repositoryUrl = stringResource(R.string.about_repository_url)
     val palette = LocalBookPalette.current
     // 版本号统一来自构建配置的 versionName，此处只负责读取展示。
     val version = remember(context) {
@@ -146,38 +149,29 @@ private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: Bo
         Column(Modifier.fillMaxWidth().weight(1f)
             .padding(horizontal = 20.dp)
             .verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.size(72.dp).clip(RoundedCornerShape(16.dp)).background(palette.brand)
-                    .testTag("about_app_icon"), contentAlignment = Alignment.Center) {
-                    Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null,
-                        modifier = Modifier.requiredSize(108.dp))
-                }
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                AboutLogo()
                 BookText(stringResource(R.string.app_name), size = 24.sp, weight = FontWeight.SemiBold)
                 BookText(stringResource(R.string.about_description), size = 14.sp, color = palette.secondary, align = TextAlign.Center)
                 BookText(stringResource(R.string.about_version, version), size = 13.sp, color = palette.secondary)
-                BookText(stringResource(R.string.about_platform), size = 12.sp, color = palette.secondary)
             }
-            LedgerCard {
-                BookText(stringResource(R.string.about_features_title), weight = FontWeight.Medium)
-                BookText(stringResource(R.string.about_features), size = 14.sp, color = palette.secondary)
-                LedgerDivider()
-                BookText(stringResource(R.string.about_currency), size = 14.sp, color = palette.secondary)
+            Column(Modifier.fillMaxWidth()) {
+                AboutLink(R.string.about_author_info, R.string.about_author_url)
+                AboutLink(R.string.about_license_info, R.string.about_license_url)
+                AboutLink(R.string.about_source, R.string.about_repository_url)
             }
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                BookText(stringResource(R.string.encrypted_local_title), weight = FontWeight.Medium)
-                BookText(stringResource(R.string.encrypted_local_hint), size = 14.sp, color = palette.secondary)
-                BookText(stringResource(R.string.about_export_hint), size = 14.sp, color = palette.secondary)
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                BookText(stringResource(R.string.encrypted_local_title), weight = FontWeight.Medium, align = TextAlign.Center)
+                BookText(stringResource(R.string.encrypted_local_hint), size = 14.sp, color = palette.secondary, align = TextAlign.Center)
             }
-            Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, repositoryUrl.toUri())) },
-                text = stringResource(R.string.about_source), style = ButtonStyle.TextButton,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             LedgerCard {
-                BookText(stringResource(R.string.about_updates), weight = FontWeight.Medium)
+                BookText(stringResource(R.string.about_updates), Modifier.align(Alignment.CenterHorizontally), weight = FontWeight.Medium)
                 UpdateSection(updateState, vm)
             }
             BookSnackbarHost()
@@ -190,6 +184,39 @@ private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: Bo
         is UpdateUiState.ReadyToInstall -> UpdateInstallDialog(vm)
         else -> Unit
     }
+}
+
+/** 复用启动图标的路径，关于页的线条与背景使用同一动态主题色。 */
+@Composable
+private fun AboutLogo() {
+    val brand = LocalBookPalette.current.brand
+    val original = ImageVector.vectorResource(R.drawable.ic_launcher_foreground)
+    val logo = remember(original, brand) {
+        ImageVector.Builder(name = "AboutAppLogo", defaultWidth = original.defaultWidth,
+            defaultHeight = original.defaultHeight, viewportWidth = original.viewportWidth,
+            viewportHeight = original.viewportHeight).apply {
+            for (index in 0 until original.root.size) {
+                val path = original.root[index] as VectorPath
+                addPath(pathData = path.pathData, pathFillType = path.pathFillType,
+                    fill = path.fill, fillAlpha = path.fillAlpha,
+                    stroke = path.stroke?.let { SolidColor(brand) }, strokeAlpha = path.strokeAlpha,
+                    strokeLineWidth = path.strokeLineWidth, strokeLineCap = path.strokeLineCap,
+                    strokeLineJoin = path.strokeLineJoin, strokeLineMiter = path.strokeLineMiter)
+            }
+        }.build()
+    }
+    Box(Modifier.size(72.dp).clip(RoundedCornerShape(16.dp)).background(brand)
+        .testTag("about_app_icon"), contentAlignment = Alignment.Center) {
+        Image(logo, contentDescription = null, modifier = Modifier.requiredSize(108.dp))
+    }
+}
+
+@Composable
+private fun AboutLink(@StringRes text: Int, @StringRes url: Int) {
+    val uriHandler = LocalUriHandler.current
+    val destination = stringResource(url)
+    Button(onClick = { uriHandler.openUri(destination) }, text = stringResource(text),
+        style = ButtonStyle.TextButton, size = ButtonSize.Small, modifier = Modifier.fillMaxWidth())
 }
 
 /** 底部“检查更新”区块：按钮、进度与安装入口都集中在这里。 */
@@ -299,11 +326,11 @@ private fun UpdateInstallDialog(vm: BookViewModel) {
     }
 }
 
-@Preview(name = "浅色 · 关于弹层", widthDp = 393, heightDp = 780, showBackground = true)
+@Preview(name = "关于弹层（浅色）", widthDp = 393, heightDp = 780, showBackground = true)
 @Composable
 private fun LightAboutSheetPreview() { AboutSheetPreview(darkTheme = false) }
 
-@Preview(name = "深色 · 关于弹层", widthDp = 393, heightDp = 780, showBackground = true)
+@Preview(name = "关于弹层（深色）", widthDp = 393, heightDp = 780, showBackground = true)
 @Composable
 private fun DarkAboutSheetPreview() { AboutSheetPreview(darkTheme = true) }
 

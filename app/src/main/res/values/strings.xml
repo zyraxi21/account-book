@@ -145,13 +145,13 @@
     <string name="about_sheet_expanded">关于页面已展开</string>
     <string name="about_sheet_collapsed">关于页面已收起</string>
     <string name="about_version">版本 %1$s</string>
-    <string name="about_platform">Android 14 及以上 · 本地加密记账</string>
     <string name="about_updates">版本更新</string>
     <string name="about_description">用一份月度对账单，记录资产变化与每一笔收入。</string>
-    <string name="about_features_title">主要功能</string>
-    <string name="about_features">月度资产、负债与净资产\n收入明细与截至月末的累计收入\n工行短信解析与自动入账\nJSON / CSV 备份、合并与恢复</string>
-    <string name="about_currency">默认人民币（CNY），金额精确到分。</string>
-    <string name="about_source">查看开源项目</string>
+    <string name="about_author_info">作者：zyraxi</string>
+    <string name="about_author_url" translatable="false">https://zyraxi21.github.io/</string>
+    <string name="about_license_info">开源许可证：GPL v3</string>
+    <string name="about_license_url" translatable="false">https://github.com/zyraxi21/account-book/blob/main/LICENSE</string>
+    <string name="about_source">GitHub：zyraxi21/account-book</string>
     <string name="about_repository_url" translatable="false">https://github.com/zyraxi21/account-book</string>
     <string name="about_export_hint">导出的文件保存到你选择的位置。请妥善保管备份；卸载应用会删除本机加密账本。</string>
     <string name="update_check">检查更新</string>

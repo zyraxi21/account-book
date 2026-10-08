@@ -41,7 +41,7 @@
 
 入口使用 `AppCompatActivity`，满足 Fluent 日历查找宿主并创建七个星期标题的要求，消除空白星期栏；页面仍通过 Compose 构建。日期弹窗以单独的 XML 主题桥接原生控件配色，按当前 Compose 模式选择浅色或深色角色，标题、关闭图标、星期及日历数字均保持清晰，选中态使用系统动态强调色。底部导航参考 `D:\source\android\myapplication` 的实现，用 Compose 绘制完整导航项，并沿用 Fluent 图标尺寸、排版和颜色令牌。
 
-关于页使用 `fluentui_drawer:0.3.10` 的 `com.microsoft.fluentui.tokenized.bottomsheet.BottomSheet`，把手、遮罩和拖动停靠均由 Fluent 实现；支持打开、下滑、点击遮罩、返回键及关闭按钮。正文的嵌套滚动不一定触发 SDK 的关闭回调，因此统一观察停靠隐藏状态，在关闭动画完成后移除弹层；下滑后可再次打开。使用官方固定停靠模式，高度为窗口的 88%，最多 760dp；正文扣除 Fluent 把手的 20dp，避免内容高度超过可见停靠范围。布局参考 `D:\source\android\myapplication` 的关于面板：应用图标、名称、简介和版本居中，主要功能与本地数据说明位于正文，版本更新卡片固定在底部。保留系统底部及横向边衬，与主界面共用窗口的截屏保护。所有应用文案统一放在 `strings.xml`。[Fluent BottomSheet 接口](https://github.com/microsoft/fluentui-android/wiki/Controls#bottom-sheet)
+关于页使用 `fluentui_drawer:0.3.10` 的 `com.microsoft.fluentui.tokenized.bottomsheet.BottomSheet`，把手、遮罩和拖动停靠均由 Fluent 实现；支持打开、下滑、点击遮罩、返回键及关闭按钮。正文的嵌套滚动不一定触发 SDK 的关闭回调，因此统一观察停靠隐藏状态，在关闭动画完成后移除弹层；下滑后可再次打开。使用官方固定停靠模式，高度为窗口的 88%，最多 640dp；正文扣除 Fluent 把手的 20dp，避免内容高度超过可见停靠范围。布局参考 `D:\source\android\myapplication` 的关于面板：应用图标、名称、简介和版本居中，作者、许可证、项目链接与本地数据说明位于可滚动正文，版本更新卡片固定在底部。信息链接使用小号 Fluent 文本按钮，行高为 28dp，正文分组间距为 12dp。Logo 复用启动图标路径，线条与背景共同使用当前动态主题色。作者 [zyraxi](https://zyraxi21.github.io/)、[GPL v3 许可证](https://github.com/zyraxi21/account-book/blob/main/LICENSE)及 [GitHub 项目](https://github.com/zyraxi21/account-book)均可点击打开。保留系统底部及横向边衬，与主界面共用窗口的截屏保护。所有应用文案统一放在 `strings.xml`。[Fluent BottomSheet 接口](https://github.com/microsoft/fluentui-android/wiki/Controls#bottom-sheet)
 
 界面采用月度对账单布局，渠道金额右对齐，资产、负债、净资产及月度差额合并在同一卡片；卡片右上角提供编辑和红色删除图标，收入分项使用同一组操作图标，并保留无障碍描述及确认弹窗。默认从系统壁纸配色取得动态品牌种子，展开为 Fluent 的 16 级品牌色阶，并按官方色阶的亮度分布校准对比度；深色模式降低品牌色饱和度。按钮、输入框、汇总强调和导航选中项使用同一套品牌令牌，预览关闭动态取色时回退到 Fluent 蓝 `#0F6CBD`。[Android 动态颜色说明](https://developer.android.com/develop/ui/compose/designsystems/material3#dynamic-color-schemes)
 
@@ -228,11 +228,15 @@ SQLCipher 的 JNI 和 Room 数据库构造入口沿用依赖的保留规则。�
 | 手机原安装的 arm64 Debug 实测 | 43.27 MiB | 38.84 MiB |
 | 2026-10-07 按需生成的 arm64 Debug | 43.97 MiB | 39.49 MiB |
 | 2026-10-07 arm64 Release | 6.06 MiB（6353002 字节） | 2.90 MiB |
-| 当前 arm64 Release | **6.15 MiB**（6447974 字节） | **2.96 MiB** |
+| 当前 arm64 Release | **6.15 MiB**（6448138 字节） | **2.96 MiB** |
 
 当前 APK 相对计划基准减少约 **87.3%**，相对手机原安装包减少约 **85.8%**。两种构建均只含 `arm64-v8a` 的 SQLCipher 和 Compose 路径原生库；Release 不可调试，Manifest 没有测试活动及测试运行器。AppCompat 测试宿主只在 Debug Manifest 中声明。
 
 此前 6.03 MiB 版本覆盖安装后，Android `StorageStats.appBytes` 实测手机应用代码占用为 **6.15 MiB**（6448640 字节）。该值不包含账本数据和缓存，后续 ART 编译也可能改变它，不能与 APK 文件大小混为同一口径。原账本及 Keystore 密钥保留，未卸载或清除应用数据。当前版本使用虚拟设备验证，未重复测量手机安装占用。
+
+2026-10-08 关于页信息及 Logo 改动已执行的验证：
+
+API 37 虚拟设备上复查 1 个既有关于页用例，通过点击界面中的作者、许可证和项目链接验证对应 URL，并确认下滑关闭后可重新打开。收紧行距及面板高度后，仅复查该用例。浅深色截图确认 Logo 线条与背景使用一致的动态主题色，信息居中且更新按钮完整显示。报告及预览位于 `app/build/reports/about-identity/`。Debug、Release 与测试 APK 构建成功，Release Lint 为 0 错误、13 条警告，其中 1 条为精简关于页后未使用的导出说明文案，其余 12 条延续既有提示；设备检查使用 Debug。
 
 2026-10-08 余额输入光标修复已执行的验证：
 

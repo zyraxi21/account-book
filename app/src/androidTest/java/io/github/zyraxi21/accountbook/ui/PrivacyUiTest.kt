@@ -22,6 +22,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.TextRange
@@ -284,7 +286,10 @@ class PrivacyUiTest {
     }
 
     @Test fun startupAndScreenshotSwitchesSaveWithoutSuccessMessageAndAboutContainsLocalDataInfo() {
-        launchBook()
+        val openedLinks = mutableListOf<String>()
+        launchBook(uriHandler = object : UriHandler {
+            override fun openUri(uri: String) { openedLinks.add(uri) }
+        })
         compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
         compose.onNodeWithContentDescription(context.getString(R.string.default_privacy_title)).performScrollTo().performClick()
         compose.runOnIdle { assertFalse(vm.state.value.data.settings.hideOnStartup); assertEquals(null, vm.message.value) }
@@ -297,11 +302,18 @@ class PrivacyUiTest {
         compose.onAllNodesWithText(context.getString(R.string.encrypted_local_title)).assertCountEquals(0)
         scrollToText(R.string.about_title).performClick()
         compose.onNodeWithText(context.getString(R.string.update_check)).assertIsDisplayed()
-        compose.onNodeWithText(context.getString(R.string.about_features_title)).assertExists()
         compose.runOnIdle { darkTheme = false }
         capturePreview("about-light")
         compose.runOnIdle { darkTheme = true }
         capturePreview("about-dark")
+        for (text in listOf(R.string.about_author_info, R.string.about_license_info, R.string.about_source)) {
+            compose.onNodeWithText(context.getString(text)).performScrollTo().performClick()
+        }
+        compose.runOnIdle {
+            assertEquals(listOf(context.getString(R.string.about_author_url), context.getString(R.string.about_license_url),
+                context.getString(R.string.about_repository_url)), openedLinks)
+        }
+        compose.onNodeWithTag("about_app_icon").performScrollTo()
         compose.onNodeWithText(context.getString(R.string.encrypted_local_title)).assertExists()
         compose.onNodeWithTag(BOTTOMSHEET_HANDLE_TAG).assertExists()
         // 正文拖动走嵌套滚动，与把手的关闭回调不同；两种方式都必须允许再次打开。
@@ -675,7 +687,8 @@ class PrivacyUiTest {
     private fun launchBook(hasSnapshot: Boolean = true, registry: ActivityResultRegistryOwner? = null, enableTransfer: Boolean = false,
                            onDeleteAsset: ((YearMonth) -> Unit)? = null,
                            channels: List<Channel> = listOf(Channel("bank", "隐私银行", true, 0)),
-                           incomes: List<Income> = listOf(Income("salary", "隐私收入项目", Money(10000), now))) {
+                           incomes: List<Income> = listOf(Income("salary", "隐私收入项目", Money(10000), now)),
+                           uriHandler: UriHandler? = null) {
         compose.runOnIdle {
             // 仅测试活动保持亮屏，避免厂商在回归过程中冻结测试进程。
             compose.activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -690,7 +703,8 @@ class PrivacyUiTest {
             store.put("privacy", vm)
         }
         compose.setContent {
-            CompositionLocalProvider(LocalActivityResultRegistryOwner provides (registry ?: compose.activity)) {
+            CompositionLocalProvider(LocalActivityResultRegistryOwner provides (registry ?: compose.activity),
+                LocalUriHandler provides (uriHandler ?: LocalUriHandler.current)) {
                 AccountBookTheme(darkTheme = darkTheme) { BookApp(vm) }
             }
         }
