@@ -40,7 +40,6 @@ import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonSize
 import com.microsoft.fluentui.theme.token.controlTokens.SheetAccessibilityAnnouncement
 import com.microsoft.fluentui.tokenized.bottomsheet.BottomSheet
-import com.microsoft.fluentui.tokenized.progress.LinearProgressIndicator
 import com.microsoft.fluentui.tokenized.bottomsheet.BottomSheetValue
 import com.microsoft.fluentui.tokenized.bottomsheet.rememberBottomSheetState
 import com.microsoft.fluentui.tokenized.controls.Button
@@ -90,7 +89,7 @@ fun AboutScreen(vm: BookViewModel, onDismiss: () -> Unit) {
         { scope.launch { sheetState.hide() }; Unit }
     }
     val updateState by vm.updateState.collectAsStateWithLifecycle()
-    val sheetHeight = with(LocalDensity.current) { (LocalWindowInfo.current.containerSize.height.toDp() * 0.88f).coerceAtMost(640.dp) }
+    val sheetHeight = with(LocalDensity.current) { (LocalWindowInfo.current.containerSize.height.toDp() * 0.88f).coerceAtMost(560.dp) }
     // Fluent 以内容函数的标识缓存测量结果；保持引用稳定，避免动画帧反复重置高度。
     val sheetContent: @Composable () -> Unit = remember(close, sheetHeight, updateState) {
         // Fluent 把手占 4dp，上下各有 8dp 内边距；正文高度与可见停靠高度对应。
@@ -169,14 +168,10 @@ private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: Bo
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            LedgerCard {
-                BookText(stringResource(R.string.about_updates), Modifier.align(Alignment.CenterHorizontally), weight = FontWeight.Medium)
-                UpdateSection(updateState, vm)
-            }
+            UpdateButton(updateState, vm)
             BookSnackbarHost()
         }
     }
-    // 新版本弹窗与安装授权引导独立于弹层内容，避免被滚动区域裁剪。
 }
 
 /** 复用启动图标的路径，关于页的线条与背景使用同一动态主题色。 */
@@ -212,40 +207,13 @@ private fun AboutLink(@StringRes text: Int, @StringRes url: Int) {
         style = ButtonStyle.TextButton, size = ButtonSize.Small, modifier = Modifier.fillMaxWidth())
 }
 
-/** 底部“检查更新”区块：按钮、进度与安装入口都集中在这里。 */
+/** 关于页仅保留检查入口，更新说明、下载进度及安装由应用层弹窗显示。 */
 @Composable
-private fun UpdateSection(updateState: UpdateUiState, vm: BookViewModel) {
-    val palette = LocalBookPalette.current
+private fun UpdateButton(updateState: UpdateUiState, vm: BookViewModel) {
     val checking = updateState is UpdateUiState.Checking
-    val downloading = updateState is UpdateUiState.Downloading
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        when (updateState) {
-            is UpdateUiState.Available -> {
-                BookText(stringResource(R.string.update_available_message,
-                    updateState.release.version.toString()), size = 14.sp, color = palette.secondary)
-                Button(onClick = { vm.startUpdateDownload() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    text = stringResource(R.string.update_download_now), enabled = updateState.release.apkUrl != null)
-                Button(onClick = { vm.dismissUpdate() }, style = ButtonStyle.OutlinedButton,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), text = stringResource(R.string.update_later))
-            }
-            is UpdateUiState.ReadyToInstall -> {
-                BookText(stringResource(R.string.update_download_done), size = 14.sp, color = palette.secondary)
-                Button(onClick = vm::installUpdate, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    text = stringResource(R.string.update_install))
-            }
-            else -> Button(onClick = { vm.checkForUpdates() },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                text = stringResource(if (checking) R.string.update_checking else R.string.update_check),
-                enabled = !checking && !downloading)
-        }
-        if (downloading) {
-            val progress = (updateState as UpdateUiState.Downloading).progress
-            BookText(
-                if (progress >= 0) stringResource(R.string.update_progress, progress)
-                else stringResource(R.string.update_progress_unknown),
-                size = 14.sp, color = palette.secondary)
-        }
-    }
+    Button(onClick = vm::checkForUpdates, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+        text = stringResource(if (checking) R.string.update_checking else R.string.update_check),
+        enabled = updateState is UpdateUiState.Idle)
 }
 
 @Preview(name = "关于弹层（浅色）", widthDp = 393, heightDp = 780, showBackground = true)
@@ -261,8 +229,8 @@ private fun AboutSheetPreview(darkTheme: Boolean) {
     AccountBookTheme(darkTheme = darkTheme, dynamicColor = false) {
         BottomSheet(modifier = Modifier.fillMaxSize(),
             sheetState = rememberBottomSheetState(BottomSheetValue.Shown),
-            sheetContent = { AboutContent(onClose = {}, UpdateUiState.Idle, previewViewModel(), Modifier.height(680.dp)) },
-            slideOver = false, expandable = false, peekHeight = 700.dp,
+            sheetContent = { AboutContent(onClose = {}, UpdateUiState.Idle, previewViewModel(), Modifier.height(540.dp)) },
+            slideOver = false, expandable = false, peekHeight = 560.dp,
             content = {})
     }
 }

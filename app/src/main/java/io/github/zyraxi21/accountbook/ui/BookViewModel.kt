@@ -159,7 +159,7 @@ class BookViewModel(
         dismissMessage()
     }
 
-    /** 暂停时立即遮挡界面，但不改写用户通过眼睛按钮作出的选择。 */
+    /** 暂停时立即遮挡界面，但不改写用户通过隐私按钮作出的选择。 */
     fun obscureInBackground() {
         backgroundObscured = true
         updatePrivacyVisibility()

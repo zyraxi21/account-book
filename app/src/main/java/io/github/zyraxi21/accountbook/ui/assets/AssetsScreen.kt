@@ -120,7 +120,7 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
                             BookText(stringResource(R.string.month_short_format, month.year, month.monthValue),
                                 Modifier.weight(1f), size = 14.sp, color = palette.brand)
                             BookIconButton(R.drawable.ic_channel_edit, R.string.edit_assets, onRegister,
-                                Modifier.testTag("register_assets_$month"), enabled = !busy)
+                                Modifier.testTag("register_assets_$month"), enabled = !busy && !hidden)
                             BookIconButton(R.drawable.ic_channel_delete, R.string.delete, onDelete,
                                 Modifier.testTag("delete_assets_$month"), enabled = !busy && !hidden, destructive = true)
                         }
@@ -154,7 +154,7 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
             }
             if (snapshot == null) {
                 item { Button(onClick = onRegister, text = stringResource(R.string.register_assets),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("register_assets_$month"), enabled = !busy) }
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("register_assets_$month"), enabled = !busy && !hidden) }
             }
     }
 }

@@ -83,13 +83,19 @@ class PrivacyUiTest {
 
     @Test fun hiddenModeRemovesFinancialTextFromMergedAndUnmergedSemantics() {
         launchBook()
+        compose.onNodeWithTag("register_assets_${vm.thisMonth}").assertIsNotEnabled()
+            .performTouchInput { click() }
+        compose.onNodeWithText(context.getString(R.string.privacy_reveal_first)).assertDoesNotExist()
+        compose.runOnIdle { assertEquals(null, vm.assetDraft.value) }
         compose.onAllNodesWithText("隐私银行", useUnmergedTree = true).assertCountEquals(0)
         compose.onAllNodesWithText("¥ 1,234.56", useUnmergedTree = true).assertCountEquals(0)
         compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithTag("register_assets_${vm.thisMonth}").assertIsEnabled()
         compose.onNodeWithText("隐私银行").assertExists()
         // 此用例只有一个渠道，其余额与总资产相同，界面应同时显示这两个值。
         compose.onAllNodesWithText("¥ 1,234.56").assertCountEquals(2)
         compose.onNodeWithContentDescription(context.getString(R.string.privacy_hide)).performClick()
+        compose.onNodeWithTag("register_assets_${vm.thisMonth}").assertIsNotEnabled()
         compose.onAllNodesWithText("隐私银行", useUnmergedTree = true).assertCountEquals(0)
         compose.onAllNodesWithText("¥ 1,234.56", useUnmergedTree = true).assertCountEquals(0)
     }
@@ -281,8 +287,11 @@ class PrivacyUiTest {
     @Test fun systemHintUsesSnackbarAndPrivacyControlHasNoVisibleTextLabel() {
         launchBook(hasSnapshot = false)
         compose.onAllNodesWithText("隐私").assertCountEquals(0)
-        compose.onNodeWithText(context.getString(R.string.register_assets)).performClick()
-        compose.onNodeWithText(context.getString(R.string.privacy_reveal_first)).assertExists()
+        compose.onNodeWithText(context.getString(R.string.register_assets)).assertIsNotEnabled()
+            .performTouchInput { click() }
+        compose.onNodeWithText(context.getString(R.string.privacy_reveal_first)).assertDoesNotExist()
+        compose.runOnIdle { assertEquals(null, vm.assetDraft.value); vm.notifyMessage(R.string.sms_grant_failed) }
+        compose.onNodeWithText(context.getString(R.string.sms_grant_failed)).assertExists()
     }
 
     @Test fun startupAndScreenshotSwitchesSaveWithoutSuccessMessageAndAboutContainsLocalDataInfo() {
@@ -302,6 +311,7 @@ class PrivacyUiTest {
         compose.onAllNodesWithText(context.getString(R.string.encrypted_local_title)).assertCountEquals(0)
         scrollToText(R.string.about_title).performClick()
         compose.onNodeWithText(context.getString(R.string.update_check)).assertIsDisplayed()
+        compose.onAllNodesWithText("版本更新").assertCountEquals(0)
         compose.runOnIdle { darkTheme = false }
         capturePreview("about-light")
         compose.runOnIdle { darkTheme = true }

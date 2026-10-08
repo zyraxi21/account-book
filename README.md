@@ -7,7 +7,7 @@
 - **资产**：每个自然月保存一份资产表，支持补录、编辑、删除，登记日期、渠道余额及负债。界面只选择日期，落库时与保存时的上海时间组合；所属月份仍按 `Asia/Shanghai` 确定。
 - **收入**：按月浏览、登记、编辑或删除收入，汇总所选月份的收入，以及截至该月月底的历史累计收入；后续月份的记录不计入。与资产页共享所选月份，可粘贴工行短信解析，也可授权后自动登记新收到的工行收入短信。
 - **渠道**：初始提供银行、支付宝、微信，在登记资产对话框内集中添加、改名、删除及拖动排序；设置页不再重复提供渠道管理。点渠道标题右侧的“＋”打开新增弹窗，原有金额草稿保留；编辑和删除使用图标按钮，所有启用渠道以卡片呈现，金额留空按 0 元保存。新增、改名和删除即时生效；金额与卡片顺序在保存资产时用同一事务提交，取消登记不保存排序。再次登记使用当前渠道排序，金额重新填写；编辑历史月份时保留原余额、历史名称及已删除渠道的历史明细。
-- **隐私**：顶栏眼睛图标切换账务显示。自动隐藏开启时，冷启动及从后台返回均隐藏；关闭时，冷启动显示，返回时恢复离开前的显示／隐藏选择。后台临时遮挡不改变手动选择；金额、项目、渠道名称及登记时间同时从画面和无障碍语义中移除，编辑面板及键盘关闭，草稿保留在内存。配置变化保留当前选择及草稿，设置读取完成前保持遮挡。
+- **隐私**：顶栏隐私按钮切换账务显示。自动隐藏开启时，冷启动及从后台返回均隐藏；关闭时，冷启动显示，返回时恢复离开前的显示／隐藏选择。后台临时遮挡不改变手动选择；金额、项目、渠道名称及登记时间同时从画面和无障碍语义中移除，编辑面板及键盘关闭，草稿保留在内存。配置变化保留当前选择及草稿，设置读取完成前保持遮挡。
 - **设置与关于**：自动登记、启动隐藏、前台截屏和万位分隔均用开关实时保存，不弹成功提示。金额默认千位分隔（`12,345,678.90`）；启用万位分隔后每四位分组（`1234,5678.90`），仅影响显示，输入及 JSON／CSV 金额保持无分隔符的精确值。显示偏好加密保存，重启和覆盖导入保留设备选择。数据仅在本机保存的说明位于“关于”页面，“关于”页面底部提供“检查更新”。
 - **导入导出**：设置页可把整本账导出为 JSON 或 CSV，也可从这两种格式导入。导出与导入都通过系统文件选择器（SAF）完成，用户自行选择保存位置和来源文件。
 
@@ -42,13 +42,13 @@
 
 入口使用 `AppCompatActivity`，满足 Fluent 日历查找宿主并创建七个星期标题的要求，消除空白星期栏；页面仍通过 Compose 构建。日期弹窗以单独的 XML 主题桥接原生控件配色，按当前 Compose 模式选择浅色或深色角色，标题、关闭图标、星期及日历数字均保持清晰，选中态使用系统动态强调色。底部导航参考 `D:\source\android\myapplication` 的实现，用 Compose 绘制完整导航项，并沿用 Fluent 图标尺寸、排版和颜色令牌。
 
-关于页使用 `fluentui_drawer:0.3.10` 的 `com.microsoft.fluentui.tokenized.bottomsheet.BottomSheet`，把手、遮罩和拖动停靠均由 Fluent 实现；支持打开、下滑、点击遮罩、返回键及关闭按钮。正文的嵌套滚动不一定触发 SDK 的关闭回调，因此统一观察停靠隐藏状态，在关闭动画完成后移除弹层；下滑后可再次打开。使用官方固定停靠模式，高度为窗口的 88%，最多 640dp；正文扣除 Fluent 把手的 20dp，避免内容高度超过可见停靠范围。布局参考 `D:\source\android\myapplication` 的关于面板：应用图标、名称、简介和版本居中，作者、许可证、项目链接与本地数据说明位于可滚动正文，版本更新卡片固定在底部。信息链接使用小号 Fluent 文本按钮，行高为 28dp，正文分组间距为 12dp。Logo 复用启动图标路径，线条与背景共同使用当前动态主题色。作者 [zyraxi](https://zyraxi21.github.io/)、[GPL v3 许可证](https://github.com/zyraxi21/account-book/blob/main/LICENSE)及 [GitHub 项目](https://github.com/zyraxi21/account-book)均可点击打开。保留系统底部及横向边衬，与主界面共用窗口的截屏保护。所有应用文案统一放在 `strings.xml`。[Fluent BottomSheet 接口](https://github.com/microsoft/fluentui-android/wiki/Controls#bottom-sheet)
+关于页使用 `fluentui_drawer:0.3.10` 的 `com.microsoft.fluentui.tokenized.bottomsheet.BottomSheet`，把手、遮罩和拖动停靠均由 Fluent 实现；支持打开、下滑、点击遮罩、返回键及关闭按钮。正文的嵌套滚动不一定触发 SDK 的关闭回调，因此统一观察停靠隐藏状态，在关闭动画完成后移除弹层；下滑后可再次打开。使用官方固定停靠模式，高度为窗口的 88%，最多 560dp；正文扣除 Fluent 把手的 20dp，避免内容高度超过可见停靠范围。布局参考 `D:\source\android\myapplication` 的关于面板：应用图标、名称、简介和版本居中，作者、许可证、项目链接与本地数据说明位于可滚动正文，底部固定保留检查更新按钮，不附加标题或卡片。信息链接使用小号 Fluent 文本按钮，行高为 28dp，正文分组间距为 12dp。Logo 复用启动图标路径，线条与背景共同使用当前动态主题色。作者 [zyraxi](https://zyraxi21.github.io/)、[GPL v3 许可证](https://github.com/zyraxi21/account-book/blob/main/LICENSE)及 [GitHub 项目](https://github.com/zyraxi21/account-book)均可点击打开。保留系统底部及横向边衬，与主界面共用窗口的截屏保护。所有应用文案统一放在 `strings.xml`。[Fluent BottomSheet 接口](https://github.com/microsoft/fluentui-android/wiki/Controls#bottom-sheet)
 
 界面采用月度对账单布局，渠道金额右对齐，资产、负债、净资产及月度差额合并在同一卡片；卡片右上角提供编辑和红色删除图标，收入分项使用同一组操作图标，并保留无障碍描述及确认弹窗。默认从系统壁纸配色取得动态品牌种子，展开为 Fluent 的 16 级品牌色阶，并按官方色阶的亮度分布校准对比度；深色模式降低品牌色饱和度。按钮、输入框、汇总强调和导航选中项使用同一套品牌令牌，预览关闭动态取色时回退到 Fluent 蓝 `#0F6CBD`。[Android 动态颜色说明](https://developer.android.com/develop/ui/compose/designsystems/material3#dynamic-color-schemes)
 
 中性背景、表面和正文使用 Fluent 对应令牌；正值绿和负值红保持固定含义。页面可滚动并限制宽窗口内容宽度。浅色顶栏使用动态品牌色、浅色文字，深色顶栏使用中性表面色。顶栏背景延伸到状态栏，底栏背景延伸到手势及三键导航区域，系统图标明暗按实际背景对比度选择。系统边衬由各栏位消费一次，同时处理横向挖孔、桌面标题栏和编辑面板的键盘边衬。
 
-顶栏为标题保留 20dp 左侧边距，隐私按钮仅显示眼睛图标并保留无障碍描述。月度页面使用 Compose `HorizontalPager`：标题、月份和月份按钮固定，只有下方账单内容跟随手指移动，松手后吸附或回弹，按钮切换使用 250ms 水平动画。各页登记和删除始终绑定该页月份，滑动期间可点击；删除确认保留打开时的目标月份。连续点击累计目标，反向操作及返回本月可接管动画。点月份可直接打开月份选择器；本月为末页，资产和收入页的下一月按钮均禁用。查看历史月份时，右下角的“本月”Fluent 悬浮按钮淡入并放大，回到本月时淡出并缩小。[Compose Pager 说明](https://developer.android.com/develop/ui/compose/layouts/pager)
+顶栏为标题保留 20dp 左侧边距，隐私按钮仅显示图标并保留无障碍描述。月度页面使用 Compose `HorizontalPager`：标题、月份和月份按钮固定，只有下方账单内容跟随手指移动，松手后吸附或回弹，按钮切换使用 250ms 水平动画。各页登记和删除始终绑定该页月份；账务显示时，滑动期间也可操作。账务隐藏时，资产编辑、登记及删除按钮均禁用。删除确认保留打开时的目标月份。连续点击累计目标，反向操作及返回本月可接管动画。点月份可直接打开月份选择器；本月为末页，资产和收入页的下一月按钮均禁用。查看历史月份时，右下角的“本月”Fluent 悬浮按钮淡入并放大，回到本月时淡出并缩小。[Compose Pager 说明](https://developer.android.com/develop/ui/compose/layouts/pager)
 
 渠道卡片使用 Fluent `BasicCard`、`TextField` 及仅显示图标的 `Button`，保留 48dp 操作点击区和无障碍名称。拖动项即时跟手并抬起，相邻卡片通过 Compose `LookaheadScope` 与 `animateBounds` 平滑让位。编辑、删除及添加复用 Microsoft Fluent UI Android 示例中的矢量资源，不增加图标依赖；许可见 `THIRD_PARTY_NOTICES.md`。
 
@@ -64,7 +64,7 @@ Fluent 发布模块的依赖声明未包含主题所需的 Compose `runtime-live
 
 Fluent 复选框调用 `androidx.compose.material.icons.Icons.Filled`，显式引入 `material-icons-core:1.7.8`，修复打开资产登记时的 `NoClassDefFoundError`。手机的“加固技术不适配”提示在本次异常中对应运行时类缺失，项目没有接入应用加固 SDK。
 
-XML 文件负责 Android Manifest、统一文案 `strings.xml`、主题、矢量图标、启动器图标及备份规则。依赖采用与 `D:\source\android\fluentui-android` 本地源码对应的已发布 Fluent 模块，无需将其旧版 Gradle 工程加入本项目。月份导航与关于页返回按钮使用 `fluentui_icons` 的官方箭头，已删除被替换的自绘箭头资源；库中没有对应的眼睛、资产、收入、设置及日历图标，这些保留矢量资源。未使用的 `fluentui_tablayout` 已从依赖及版本目录移除，运行时依赖中也不包含该模块。
+XML 文件负责 Android Manifest、统一文案 `strings.xml`、主题、矢量图标、启动器图标及备份规则。依赖采用与 `D:\source\android\fluentui-android` 本地源码对应的已发布 Fluent 模块，无需将其旧版 Gradle 工程加入本项目。月份导航与关于页返回按钮使用 `fluentui_icons` 的官方箭头，已删除被替换的自绘箭头资源；库中没有对应的隐私、资产、收入、设置及日历图标，这些保留矢量资源。未使用的 `fluentui_tablayout` 已从依赖及版本目录移除，运行时依赖中也不包含该模块。
 
 ## 本地加密与数据生命周期
 
@@ -229,11 +229,15 @@ SQLCipher 的 JNI 和 Room 数据库构造入口沿用依赖的保留规则。�
 | 手机原安装的 arm64 Debug 实测 | 43.27 MiB | 38.84 MiB |
 | 2026-10-07 按需生成的 arm64 Debug | 43.97 MiB | 39.49 MiB |
 | 2026-10-07 arm64 Release | 6.06 MiB（6353002 字节） | 2.90 MiB |
-| 当前 arm64 Release | **6.15 MiB**（6448138 字节） | **2.96 MiB** |
+| 当前 arm64 Release | **6.15 MiB**（6447506 字节） | **2.96 MiB** |
 
 当前 APK 相对计划基准减少约 **87.3%**，相对手机原安装包减少约 **85.8%**。两种构建均只含 `arm64-v8a` 的 SQLCipher 和 Compose 路径原生库；Release 不可调试，Manifest 没有测试活动及测试运行器。AppCompat 测试宿主只在 Debug Manifest 中声明。
 
 此前 6.03 MiB 版本覆盖安装后，Android `StorageStats.appBytes` 实测手机应用代码占用为 **6.15 MiB**（6448640 字节）。该值不包含账本数据和缓存，后续 ART 编译也可能改变它，不能与 APK 文件大小混为同一口径。原账本及 Keystore 密钥保留，未卸载或清除应用数据。当前版本使用虚拟设备验证，未重复测量手机安装占用。
+
+2026-10-08 隐私操作与关于页简化已执行的验证：
+
+API 37 虚拟设备上一次复查 3 个既有用例，确认隐藏状态下资产编辑及登记入口禁用，点击不会打开编辑界面或触发 Snackbar；显示账务后编辑按钮恢复可用，其他系统提示仍使用 Snackbar。关于页仅显示检查更新按钮，移除更新标题及卡片，浅深色布局完整，下滑关闭后可以重新打开。报告和预览位于 `app/build/reports/privacy-about-cleanup/`。Debug、Release 与测试 APK 构建成功，Release Lint 为 0 错误、13 条既有警告。
 
 2026-10-08 启动静默检查更新已执行的验证：
 

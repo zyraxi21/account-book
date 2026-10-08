@@ -12,8 +12,8 @@
     <string name="privacy_hide">隐藏账务数据</string>
     <string name="privacy_hidden">已隐藏</string>
     <string name="privacy_mask">******</string>
-    <string name="privacy_hint">账务数据已隐藏，点击右上角眼睛图标查看。</string>
-    <string name="privacy_reveal_first">请先点击眼睛图标显示数据，再继续操作。</string>
+    <string name="privacy_hint">账务数据已隐藏，可通过右上角隐私按钮查看。</string>
+    <string name="privacy_reveal_first">请先通过隐私按钮显示账务数据，再继续操作。</string>
     <string name="statement_title">月度对账单</string>
     <string name="statement_subtitle">按渠道核对余额，记录每月资产变化。</string>
     <string name="month_format">%1$d 年 %2$d 月</string>
@@ -145,7 +145,6 @@
     <string name="about_sheet_expanded">关于页面已展开</string>
     <string name="about_sheet_collapsed">关于页面已收起</string>
     <string name="about_version">版本 %1$s</string>
-    <string name="about_updates">版本更新</string>
     <string name="about_description">用一份月度对账单，记录资产变化与每一笔收入。</string>
     <string name="about_author_info">作者：zyraxi</string>
     <string name="about_author_url" translatable="false">https://zyraxi21.github.io/</string>
