@@ -33,7 +33,8 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
                    transferProgress: Int?,
                    onSmsChange: (Boolean) -> Unit, onPermissionSettings: () -> Unit,
                    onExportJson: () -> Unit, onExportCsv: () -> Unit, onImport: () -> Unit,
-                   onHideOnStartup: (Boolean) -> Unit, onAllowScreenshots: (Boolean) -> Unit, onAbout: () -> Unit) {
+                   onHideOnStartup: (Boolean) -> Unit, onAllowScreenshots: (Boolean) -> Unit,
+                   onUseWanGrouping: (Boolean) -> Unit, onAbout: () -> Unit) {
     val palette = LocalBookPalette.current
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { SectionHeading(stringResource(R.string.tab_settings)) }
@@ -54,6 +55,13 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
             SettingToggle(stringResource(R.string.allow_screenshots_title), stringResource(R.string.allow_screenshots_hint),
                 data.settings.allowScreenshots, !busy, onAllowScreenshots)
         } }
+        item {
+            LedgerCard {
+                SettingToggle(stringResource(R.string.wan_grouping_title),
+                    stringResource(if (data.settings.useWanGrouping) R.string.wan_grouping_hint else R.string.thousands_grouping_hint),
+                    data.settings.useWanGrouping, !busy, onUseWanGrouping)
+            }
+        }
         item {
             FileTransferCard(data, hidden, transferEnabled, busy, transferProgress, onExportJson, onExportCsv, onImport)
         }

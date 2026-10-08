@@ -11,7 +11,7 @@ interface BookRepository {
     suspend fun deleteAsset(month: YearMonth)
     suspend fun saveIncome(income: Income, importFingerprint: String? = null)
     suspend fun deleteIncome(id: String)
-    /** 新建渠道并返回它，供登记弹窗立即插入勾选行。 */
+    /** 新建渠道并返回它，供登记弹窗立即插入卡片。 */
     suspend fun addChannel(name: String): Channel
     suspend fun renameChannel(id: String, name: String)
     suspend fun deleteChannel(id: String)
@@ -21,6 +21,7 @@ interface BookRepository {
     suspend fun setSmsAutoImport(enabled: Boolean)
     suspend fun setHideOnStartup(enabled: Boolean)
     suspend fun setAllowScreenshots(enabled: Boolean)
+    suspend fun setUseWanGrouping(enabled: Boolean)
     suspend fun importSms(parsed: ParsedIcbcIncome, requireAutoEnabled: Boolean = true): Boolean
 
     /** 记录一次成功导出的时间。 */

@@ -20,7 +20,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LookaheadScope
 import androidx.compose.ui.layout.boundsInParent
@@ -28,7 +27,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -39,10 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.microsoft.fluentui.theme.token.controlTokens.BasicCardInfo
 import com.microsoft.fluentui.theme.token.controlTokens.BasicCardTokens
-import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
 import com.microsoft.fluentui.theme.token.controlTokens.CardType
 import com.microsoft.fluentui.tokenized.controls.BasicCard
-import com.microsoft.fluentui.tokenized.controls.Button
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 import kotlin.math.abs
@@ -180,11 +176,9 @@ fun ChannelCardHeader(id: String, name: String, active: Boolean, enabled: Boolea
                 colorFilter = ColorFilter.tint(palette.secondary.copy(alpha = if (enabled) 1f else 0.38f)))
             BookText(name, Modifier.weight(1f), weight = FontWeight.Medium)
         }
-        Button(onClick = onEdit, style = ButtonStyle.TextButton, icon = ImageVector.vectorResource(R.drawable.ic_channel_edit),
-            contentDescription = stringResource(R.string.rename_channel), enabled = enabled && active,
-            modifier = Modifier.size(48.dp).testTag("channel_edit_$id"))
-        Button(onClick = onDelete, style = ButtonStyle.TextButton, icon = ImageVector.vectorResource(R.drawable.ic_channel_delete),
-            contentDescription = stringResource(R.string.delete_channel), enabled = enabled && active,
-            modifier = Modifier.size(48.dp).testTag("channel_delete_$id"))
+        BookIconButton(R.drawable.ic_channel_edit, R.string.rename_channel, onEdit,
+            Modifier.testTag("channel_edit_$id"), enabled = enabled && active)
+        BookIconButton(R.drawable.ic_channel_delete, R.string.delete_channel, onDelete,
+            Modifier.testTag("channel_delete_$id"), enabled = enabled && active, destructive = true)
     }
 }

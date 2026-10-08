@@ -142,17 +142,19 @@ private fun MonthlyIncome(data: BookData, month: YearMonth, currentMonth: YearMo
         }
         items(monthIncomes, key = { it.id }) { income ->
             LedgerCard {
-                PrivateText(income.title, hidden, size = 18.sp, weight = FontWeight.Medium)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    PrivateText(income.title, hidden, Modifier.weight(1f), size = 18.sp, weight = FontWeight.Medium)
+                    BookIconButton(R.drawable.ic_channel_edit, R.string.edit_income, { onEdit(income) },
+                        Modifier.testTag("edit_income_${income.id}"), enabled = !busy && !hidden)
+                    BookIconButton(R.drawable.ic_channel_delete, R.string.delete, { onDelete(income) },
+                        Modifier.testTag("delete_income_${income.id}"), enabled = !busy && !hidden, destructive = true)
+                }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PrivateText(formatDateTime(income.receivedAt), hidden, Modifier.weight(1f), 12.sp, color = palette.secondary)
                     MoneyText(income.amount, hidden)
                 }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BookText(stringResource(if (income.source == IncomeSource.SMS) R.string.income_source_sms else R.string.income_source_manual),
-                        Modifier.weight(1f), 12.sp, color = palette.secondary)
-                    Button(onClick = { onEdit(income) }, text = stringResource(R.string.edit), style = ButtonStyle.OutlinedButton, enabled = !busy && !hidden)
-                    Button(onClick = { onDelete(income) }, text = stringResource(R.string.delete), style = ButtonStyle.OutlinedButton, enabled = !busy && !hidden)
-                }
+                BookText(stringResource(if (income.source == IncomeSource.SMS) R.string.income_source_sms else R.string.income_source_manual),
+                    size = 12.sp, color = palette.secondary)
             }
         }
     }

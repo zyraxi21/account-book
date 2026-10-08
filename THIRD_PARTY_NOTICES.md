@@ -1,6 +1,6 @@
 # 第三方资源声明
 
-渠道编辑与删除图标来自 Microsoft Fluent UI Android 示例项目的 `ic_edit_24_filled.xml` 和 `ic_delete_24_filled.xml`，以 MIT 许可证使用。图标用于应用按钮，按当前主题着色。
+编辑、删除与添加图标来自 Microsoft Fluent UI Android 示例项目的 `ic_edit_24_filled.xml`、`ic_delete_24_filled.xml` 和 `ic_fluent_add_24_regular.xml`，以 MIT 许可证使用。图标用于应用按钮，按当前主题着色。
 
 项目地址：https://github.com/microsoft/fluentui-android
 

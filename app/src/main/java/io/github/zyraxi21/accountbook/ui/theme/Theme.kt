@@ -29,6 +29,7 @@ data class BookPalette(
     val background: Color, val surface: Color, val foreground: Color,
     val secondary: Color, val brand: Color, val positive: Color, val negative: Color, val stroke: Color,
     val topBar: Color, val onTopBar: Color,
+    val snackbarSurface: Color, val onSnackbar: Color,
 )
 
 val LocalBookPalette = staticCompositionLocalOf { bookPalette(AliasTokens(), darkTheme = false) }
@@ -45,10 +46,13 @@ internal fun bookPalette(tokens: AliasTokens, darkTheme: Boolean): BookPalette {
         positive = if (darkTheme) Color(0xFF6CCB5F) else Color(0xFF107C10),
         negative = if (darkTheme) Color(0xFFFF9999) else Color(0xFFC50F1F),
         stroke = tokens.neutralStrokeColor[FluentAliasTokens.NeutralStrokeColorTokens.Stroke1].resolve(),
-        topBar = if (darkTheme) tokens.neutralBackgroundColor[FluentAliasTokens.NeutralBackgroundColorTokens.Background3].dark
+        topBar = if (darkTheme) tokens.neutralBackgroundColor[FluentAliasTokens.NeutralBackgroundColorTokens.Background2].dark
             else tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackground1].light,
         onTopBar = if (darkTheme) tokens.neutralForegroundColor[FluentAliasTokens.NeutralForegroundColorTokens.Foreground1].dark
             else Color.White,
+        snackbarSurface = if (darkTheme) tokens.neutralBackgroundColor[FluentAliasTokens.NeutralBackgroundColorTokens.Background3].dark
+            else tokens.neutralForegroundColor[FluentAliasTokens.NeutralForegroundColorTokens.Foreground1].light,
+        onSnackbar = tokens.neutralForegroundColor[FluentAliasTokens.NeutralForegroundColorTokens.Foreground1].dark,
     )
 }
 
@@ -69,7 +73,8 @@ fun AccountBookTheme(
     }
     val tokens = remember(seed, darkTheme) { BookAliasTokens(seed, darkTheme) }
     val palette = remember(tokens, darkTheme) { bookPalette(tokens, darkTheme) }
-    FluentTheme(aliasTokens = tokens, themeMode = if (darkTheme) ThemeMode.Dark else ThemeMode.Light) {
+    val controlTokens = remember { BookControlTokens() }
+    FluentTheme(aliasTokens = tokens, controlTokens = controlTokens, themeMode = if (darkTheme) ThemeMode.Dark else ThemeMode.Light) {
         CompositionLocalProvider(
             LocalBookPalette provides palette,
             LocalContentColor provides palette.foreground,

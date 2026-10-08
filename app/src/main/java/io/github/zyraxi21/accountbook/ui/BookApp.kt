@@ -129,7 +129,8 @@ fun BookApp(vm: BookViewModel) {
     val modalVisible = aboutVisible || chooseImportMode || confirmReplace || permissionExplanation ||
         (!hidden && (assetDraft != null || incomeDraft != null || channelDraft != null || smsText != null ||
             deleteAsset != null || deleteIncome != null || deleteChannel != null))
-    CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots) {
+    CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots,
+        LocalUseWanGrouping provides state.data.settings.useWanGrouping) {
         Column(Modifier.fillMaxSize().background(palette.background), horizontalAlignment = Alignment.CenterHorizontally) {
             BookTopBar(hidden, vm::togglePrivacy)
             Column(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()
@@ -163,7 +164,8 @@ fun BookApp(vm: BookViewModel) {
                             onExportJson = { vm.startExport(ExportFormat.JSON) },
                             onExportCsv = { vm.startExport(ExportFormat.CSV) },
                             onImport = vm::requestImport, onHideOnStartup = vm::setHideOnStartup,
-                            onAllowScreenshots = vm::setAllowScreenshots, onAbout = { aboutVisible = true })
+                            onAllowScreenshots = vm::setAllowScreenshots, onUseWanGrouping = vm::setUseWanGrouping,
+                            onAbout = { aboutVisible = true })
                     }
                     if (!modalVisible) BookSnackbarHost(Modifier.align(Alignment.BottomCenter))
                 }
@@ -173,6 +175,7 @@ fun BookApp(vm: BookViewModel) {
         if (!hidden && state.storageError == null) {
             if (channelDraft == null && deleteChannel == null) assetDraft?.let { draft ->
                 AssetEditor(draft, vm, busy,
+                    onAdd = { vm.openChannel() },
                     onRename = { id -> state.data.channels.firstOrNull { it.id == id }?.let(vm::openChannel) },
                     onDelete = { id -> deleteChannel = state.data.channels.firstOrNull { it.id == id } })
             }

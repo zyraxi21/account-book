@@ -164,6 +164,11 @@ class EncryptedBookRepository(
         dao.saveSettings(current.copy(allowScreenshots = enabled))
     }
 
+    override suspend fun setUseWanGrouping(enabled: Boolean) = write { dao ->
+        val current = dao.settings() ?: AppSettingsEntity()
+        dao.saveSettings(current.copy(useWanGrouping = enabled))
+    }
+
     /** 单一事务提交；设备偏好和短信去重凭据在覆盖时也保留。 */
     override suspend fun importBook(data: BookData, mode: ImportMode): BookImportResult = write { dao ->
         val existing = readBook(dao)
@@ -230,6 +235,7 @@ class EncryptedBookRepository(
             exportedAt = settings?.lastExportAtMillis?.let(Instant::ofEpochMilli),
             hideOnStartup = settings?.hideOnStartup ?: true,
             allowScreenshots = settings?.allowScreenshots ?: false,
+            useWanGrouping = settings?.useWanGrouping ?: false,
         ) },
     )
 

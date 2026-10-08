@@ -4,7 +4,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.core.net.toUri
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -17,14 +20,15 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -135,27 +139,35 @@ private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: Bo
             .getOrNull().orEmpty()
     }
     Column(modifier.fillMaxWidth().testTag(ABOUT_SHEET_TAG)) {
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            BookText(stringResource(R.string.about_title), Modifier.weight(1f), 22.sp, FontWeight.SemiBold)
-            Button(onClick = onClose, style = ButtonStyle.TextButton, icon = ImageVector.vectorResource(R.drawable.ic_close),
-                contentDescription = stringResource(R.string.close), modifier = Modifier.size(48.dp))
+        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+            BookText(stringResource(R.string.about_title), Modifier.align(Alignment.Center), 20.sp, FontWeight.SemiBold)
+            BookIconButton(R.drawable.ic_close, R.string.close, onClose, Modifier.align(Alignment.CenterEnd))
         }
         Column(Modifier.fillMaxWidth().weight(1f)
             .padding(horizontal = 20.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            SectionHeading(stringResource(R.string.app_name), stringResource(R.string.about_version, version))
-            BookText(stringResource(R.string.about_description), size = 14.sp, color = palette.secondary)
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(72.dp).clip(RoundedCornerShape(16.dp)).background(palette.brand)
+                    .testTag("about_app_icon"), contentAlignment = Alignment.Center) {
+                    Image(painterResource(R.drawable.ic_launcher_foreground), contentDescription = null,
+                        modifier = Modifier.requiredSize(108.dp))
+                }
+                BookText(stringResource(R.string.app_name), size = 24.sp, weight = FontWeight.SemiBold)
+                BookText(stringResource(R.string.about_description), size = 14.sp, color = palette.secondary, align = TextAlign.Center)
+                BookText(stringResource(R.string.about_version, version), size = 13.sp, color = palette.secondary)
+                BookText(stringResource(R.string.about_platform), size = 12.sp, color = palette.secondary)
+            }
             LedgerCard {
                 BookText(stringResource(R.string.about_features_title), weight = FontWeight.Medium)
                 BookText(stringResource(R.string.about_features), size = 14.sp, color = palette.secondary)
                 LedgerDivider()
                 BookText(stringResource(R.string.about_currency), size = 14.sp, color = palette.secondary)
             }
-            LedgerCard {
-                SectionHeading(stringResource(R.string.encrypted_local_title))
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BookText(stringResource(R.string.encrypted_local_title), weight = FontWeight.Medium)
                 BookText(stringResource(R.string.encrypted_local_hint), size = 14.sp, color = palette.secondary)
-                LedgerDivider()
                 BookText(stringResource(R.string.about_export_hint), size = 14.sp, color = palette.secondary)
             }
             Button(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, repositoryUrl.toUri())) },
@@ -164,8 +176,10 @@ private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: Bo
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            LedgerDivider()
-            UpdateSection(updateState, vm)
+            LedgerCard {
+                BookText(stringResource(R.string.about_updates), weight = FontWeight.Medium)
+                UpdateSection(updateState, vm)
+            }
             BookSnackbarHost()
         }
     }
@@ -331,6 +345,7 @@ private object PreviewBookRepository : BookRepository {
     override suspend fun setSmsAutoImport(enabled: Boolean) = Unit
     override suspend fun setHideOnStartup(enabled: Boolean) = Unit
     override suspend fun setAllowScreenshots(enabled: Boolean) = Unit
+    override suspend fun setUseWanGrouping(enabled: Boolean) = Unit
     override suspend fun importSms(parsed: ParsedIcbcIncome, requireAutoEnabled: Boolean) = false
     override suspend fun recordExport(exportedAt: Instant) = Unit
     override suspend fun importBook(data: BookData, mode: ImportMode) = BookImportResult(mode, 0, 0, 0)

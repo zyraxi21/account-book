@@ -47,6 +47,8 @@ data class BookSettings(
     val exportedAt: Instant? = null,
     val hideOnStartup: Boolean = true,
     val allowScreenshots: Boolean = false,
+    /** 默认每三位分隔，开启后按中文习惯每四位分隔。 */
+    val useWanGrouping: Boolean = false,
 )
 data class BookData(
     val channels: List<Channel> = emptyList(),

@@ -72,6 +72,8 @@ class ThemeContrastTest {
     }
 
     private fun verifyPalette(palette: BookPalette) {
+        assertTrue("提示面不应在深色界面中变为亮白色", relativeLuminance(palette.snackbarSurface) < 0.15)
+        assertContrast(palette.onSnackbar, palette.snackbarSurface)
         for (background in listOf(palette.background, palette.surface)) {
             for (foreground in listOf(palette.foreground, palette.secondary, palette.brand, palette.positive, palette.negative)) {
                 assertContrast(foreground, background)

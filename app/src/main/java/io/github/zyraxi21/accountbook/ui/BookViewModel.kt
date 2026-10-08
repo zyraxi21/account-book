@@ -34,9 +34,7 @@ private const val POLL_INTERVAL_MS = 700L
 
 data class BookUiState(val loading: Boolean = true, val data: BookData = BookData(), val storageError: BookError? = null)
 data class BalanceDraft(val channelId: String, val name: String, val amount: String = "", val active: Boolean = true)
-data class AssetDraft(val originalMonth: YearMonth?, val registeredAt: Instant, val balances: List<BalanceDraft>, val liability: String = "",
-                      /** 弹窗内新增渠道的输入框，同样只由 ViewModel 持有，隐藏后恢复不丢。 */
-                      val newChannelName: String = "")
+data class AssetDraft(val originalMonth: YearMonth?, val registeredAt: Instant, val balances: List<BalanceDraft>, val liability: String = "")
 data class IncomeDraft(val id: String, val title: String, val amount: String, val receivedAt: Instant,
                        val source: IncomeSource, val fingerprint: String? = null)
 data class ChannelDraft(val id: String? = null, val name: String = "")
@@ -235,31 +233,6 @@ class BookViewModel(
         })
     }
     fun updateLiability(value: String) { _assetDraft.value = _assetDraft.value?.copy(liability = value) }
-    fun updateNewChannelName(name: String) { _assetDraft.value = _assetDraft.value?.copy(newChannelName = name.take(40)) }
-
-    /**
-     * 登记时随手新增渠道：立即落库并插入卡片，不必先去设置页。
-     * 不走 perform，避免在还在编辑时弹出“已保存”；新行出现本身就是反馈。
-     */
-    fun addChannelToDraft() {
-        if (!allowEdit()) return
-        val name = _assetDraft.value?.newChannelName?.trim().orEmpty()
-        if (name.isEmpty()) { _message.value = R.string.error_channel_name; return }
-        _busy.value = true
-        viewModelScope.launch {
-            try {
-                val channel = repository.addChannel(name)
-                val current = _assetDraft.value ?: return@launch
-                _assetDraft.value = current.copy(
-                    balances = current.balances + BalanceDraft(channel.id, channel.name),
-                    newChannelName = "",
-                )
-            } catch (error: CancellationException) { throw error
-            } catch (error: Exception) {
-                _message.value = (error as? BookException)?.error?.resource() ?: R.string.error_storage
-            } finally { _busy.value = false }
-        }
-    }
 
     fun closeAssetDraft() { if (!_busy.value) _assetDraft.value = null }
     fun saveAsset() {
@@ -323,7 +296,12 @@ class BookViewModel(
         if (!allowEdit()) return
         val draft = _channelDraft.value ?: return
         perform {
-            if (draft.id == null) repository.addChannel(draft.name) else repository.renameChannel(draft.id, draft.name)
+            if (draft.id == null) {
+                val channel = repository.addChannel(draft.name)
+                _assetDraft.value = _assetDraft.value?.let { asset ->
+                    asset.copy(balances = asset.balances + BalanceDraft(channel.id, channel.name))
+                }
+            } else repository.renameChannel(draft.id, draft.name)
             _channelDraft.value = null
         }
     }
@@ -334,6 +312,7 @@ class BookViewModel(
     fun setSmsEnabled(enabled: Boolean) { saveSetting { repository.setSmsAutoImport(enabled) } }
     fun setHideOnStartup(enabled: Boolean) { saveSetting { repository.setHideOnStartup(enabled) } }
     fun setAllowScreenshots(enabled: Boolean) { saveSetting { repository.setAllowScreenshots(enabled) } }
+    fun setUseWanGrouping(enabled: Boolean) { saveSetting { repository.setUseWanGrouping(enabled) } }
     private fun saveSetting(action: suspend () -> Unit) {
         if (!_state.value.loading && _state.value.storageError == null && !_busy.value) writeQuietly(action)
     }

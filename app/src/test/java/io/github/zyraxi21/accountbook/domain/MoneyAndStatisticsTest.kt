@@ -20,6 +20,16 @@ class MoneyAndStatisticsTest {
         assertBookError(BookError.INCOME_MUST_BE_POSITIVE) { Money.parse("0.00", positive = true) }
     }
 
+    @Test fun groupingChangesOnlyTheDisplayAndPreservesCentsAndNegativeSigns() {
+        assertEquals("12,345,678.90", Money.parse("12345678.90").formatted())
+        assertEquals("1234,5678.90", Money.parse("12345678.90").formatted(useWanGrouping = true))
+        assertEquals("1,0000.00", Money.parse("10000").formatted(useWanGrouping = true))
+        assertEquals("-1,2345.67", Money(-1234567).formatted(useWanGrouping = true))
+        assertEquals("0.01", Money(1).formatted(useWanGrouping = true))
+        assertEquals("12345678.90", Money.parse("12345678.90").inputText())
+        assertEquals("-9,2233,7203,6854,7758.00", Money(Long.MIN_VALUE + 8).formatted(useWanGrouping = true))
+    }
+
     @Test fun overflowIsRejected() {
         assertEquals(Long.MAX_VALUE, Money.parse("92233720368547758.07").fen)
         assertBookError(BookError.AMOUNT_OVERFLOW) { Money.parse("92233720368547758.08") }

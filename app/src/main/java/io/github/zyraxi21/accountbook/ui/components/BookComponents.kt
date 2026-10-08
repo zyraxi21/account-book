@@ -51,6 +51,8 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+val LocalUseWanGrouping = staticCompositionLocalOf { false }
+
 @Composable
 fun BookText(text: String, modifier: Modifier = Modifier, size: TextUnit = 16.sp,
              weight: FontWeight = FontWeight.Normal, color: Color = LocalBookPalette.current.foreground,
@@ -72,12 +74,13 @@ fun PrivateText(value: String, hidden: Boolean, modifier: Modifier = Modifier, s
 @Composable
 fun MoneyText(money: Money, hidden: Boolean, modifier: Modifier = Modifier, large: Boolean = false,
               color: Color = LocalBookPalette.current.foreground) {
-    PrivateText(stringResource(R.string.currency_value, money.formatted()), hidden, modifier,
+    PrivateText(stringResource(R.string.currency_value, money.formatted(LocalUseWanGrouping.current)), hidden, modifier,
         if (large) 28.sp else 18.sp, FontWeight.Medium, color)
 }
 
 private object LedgerCardTokens : BasicCardTokens() {
     @Composable override fun backgroundBrush(basicCardInfo: BasicCardInfo): Brush = SolidColor(LocalBookPalette.current.surface)
+    @Composable override fun borderColor(basicCardInfo: BasicCardInfo): Brush = SolidColor(LocalBookPalette.current.stroke)
     @Composable override fun cornerRadius(basicCardInfo: BasicCardInfo) = 12.dp
 }
 

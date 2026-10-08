@@ -38,6 +38,15 @@ import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.core.app.ActivityOptionsCompat
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import io.github.zyraxi21.accountbook.ui.components.CurrentMonthButton
+import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 import io.github.zyraxi21.accountbook.data.transfer.BookTransfer
 import org.hamcrest.Matcher
 import io.github.zyraxi21.accountbook.R
@@ -402,6 +411,94 @@ class PrivacyUiTest {
         dragChannel(savedOrder.first(), cancel = true)
         compose.runOnIdle { assertEquals(savedOrder, vm.assetDraft.value!!.balances.map { it.channelId }) }
         assertChannelOrder(savedOrder)
+    }
+
+    @Test fun addingAChannelUsesASeparateDialogAndRestoresTheAssetDraft() {
+        launchAssetCards()
+        compose.runOnIdle { vm.updateBalance("a", "10.25") }
+        compose.onNodeWithTag("add_channel_button").assertIsDisplayed().performClick()
+        compose.onNode(hasSetTextAction()).performTextInput("招商银行")
+        compose.onNodeWithText(context.getString(R.string.cancel)).performClick()
+        compose.runOnIdle {
+            assertEquals(3, vm.assetDraft.value!!.balances.size)
+            assertEquals("10.25", vm.assetDraft.value!!.balances.first().amount)
+        }
+        compose.onNodeWithTag("add_channel_button").performClick()
+        compose.onNode(hasSetTextAction()).performTextInput("招商银行")
+        compose.onNodeWithText(context.getString(R.string.save_channel)).performClick()
+        compose.onNodeWithText("招商银行").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle {
+            assertEquals(4, vm.assetDraft.value!!.balances.size)
+            assertEquals("10.25", vm.assetDraft.value!!.balances.first().amount)
+            assertEquals("", vm.assetDraft.value!!.balances.last().amount)
+        }
+    }
+
+    @Test fun assetAndIncomeIconActionsOpenTheCorrectEditorsAndConfirmations() {
+        launchBook()
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.runOnIdle { darkTheme = true }
+        capturePreview("statement-dark")
+        compose.onNodeWithTag("register_assets_${vm.thisMonth}").performClick()
+        compose.onNode(hasSetTextAction() and hasText("1234.56")).assertExists()
+        compose.onNodeWithText(context.getString(R.string.cancel)).performClick()
+        compose.onNodeWithTag("delete_assets_${vm.thisMonth}").performClick()
+        compose.onNodeWithText(context.getString(R.string.delete_asset_hint)).assertExists()
+        compose.onNodeWithText(context.getString(R.string.cancel)).performClick()
+        compose.onNodeWithText(context.getString(R.string.tab_income)).performClick()
+        capturePreview("income-dark")
+        compose.onNodeWithTag("edit_income_salary").performClick()
+        compose.onNode(hasSetTextAction() and hasText("隐私收入项目")).assertExists()
+        compose.onNodeWithText(context.getString(R.string.cancel)).performClick()
+        compose.onNodeWithTag("delete_income_salary").performClick()
+        compose.onNodeWithText(context.getString(R.string.delete_income_hint)).assertExists()
+        compose.onNodeWithText(context.getString(R.string.cancel)).performClick()
+    }
+
+    @Test fun groupingSwitchUpdatesBothPagesWithoutASuccessMessage() {
+        launchBook(incomes = listOf(Income("salary", "收入项目", Money(1234567), now)))
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithText(context.getString(R.string.tab_income)).performClick()
+        val total = compose.onNodeWithTag("cumulative_income_${vm.thisMonth}")
+        total.assertTextEquals(context.getString(R.string.currency_value, "12,345.67"))
+        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.wan_grouping_title)).performScrollTo().performClick()
+        compose.runOnIdle { assertTrue(vm.state.value.data.settings.useWanGrouping); assertEquals(null, vm.message.value) }
+        compose.runOnIdle { darkTheme = true }
+        capturePreview("grouping-settings-dark")
+        compose.onNodeWithText(context.getString(R.string.tab_income)).performClick()
+        total.assertTextEquals(context.getString(R.string.currency_value, "1,2345.67"))
+        compose.onNodeWithText(context.getString(R.string.tab_assets)).performClick()
+        compose.onAllNodesWithText(context.getString(R.string.currency_value, "1234.56")).assertCountEquals(2)
+        compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.wan_grouping_title)).performScrollTo().performClick()
+        compose.onNodeWithText(context.getString(R.string.tab_income)).performClick()
+        total.assertTextEquals(context.getString(R.string.currency_value, "12,345.67"))
+    }
+
+    @Test fun currentMonthTransitionShowsAndRemovesTheButtonWithItsShadow() {
+        var visible by mutableStateOf(false)
+        compose.setContent {
+            AccountBookTheme(darkTheme = true, dynamicColor = false) {
+                Box(Modifier.fillMaxSize().background(LocalBookPalette.current.background).padding(24.dp)) {
+                    CurrentMonthButton(visible, {}, Modifier.align(Alignment.BottomEnd))
+                }
+            }
+        }
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnIdle { visible = true }
+            compose.mainClock.advanceTimeBy(80)
+            compose.onNodeWithTag("current_month_button").assertExists()
+            capturePreview("current-month-enter-dark")
+            compose.mainClock.advanceTimeBy(200)
+            compose.runOnIdle { visible = false }
+            compose.mainClock.advanceTimeBy(64)
+            compose.onNodeWithTag("current_month_button").assertExists()
+            capturePreview("current-month-exit-dark")
+            compose.mainClock.advanceTimeBy(200)
+            compose.onAllNodesWithTag("current_month_button").assertCountEquals(0)
+        } finally { compose.mainClock.autoAdvance = true }
     }
 
     @Test fun neighbouringCardsAnimateIntoTheirNewPositions() {

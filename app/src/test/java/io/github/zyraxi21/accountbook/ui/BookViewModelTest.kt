@@ -229,26 +229,27 @@ class BookViewModelTest {
         assertFalse(restarted.privacyHidden.value)
     }
 
-    @Test fun newChannelFromAssetEditorAddsAnEmptyCardAndClearsInput() {
+    @Test fun newChannelDialogAddsAnEmptyCardAndPreservesAssetAmounts() {
         vm.togglePrivacy(); vm.openAssets(vm.thisMonth)
-        vm.updateNewChannelName("  招商银行  ")
-        vm.addChannelToDraft()
+        vm.updateBalance("bank", "12.34")
+        vm.openChannel(); vm.updateChannelName("  招商银行  "); vm.saveChannel()
         val draft = vm.assetDraft.value!!
         val added = draft.balances.last()
         assertEquals("招商银行", added.name)
         assertTrue(added.active)
-        assertEquals("", draft.newChannelName)
+        assertNull(vm.channelDraft.value)
+        assertEquals("12.34", draft.balances.first().amount)
         assertEquals("招商银行", vm.state.value.data.activeChannels.last().name)
     }
 
-    @Test fun blankNewChannelNameIsRejectedWithoutTouchingTheDraft() {
+    @Test fun cancellingTheNewChannelDialogDoesNotTouchTheAssetDraft() {
         vm.togglePrivacy(); vm.openAssets(vm.thisMonth)
-        vm.updateNewChannelName("   ")
-        vm.addChannelToDraft()
-        assertEquals("   ", vm.assetDraft.value!!.newChannelName)
+        val original = vm.assetDraft.value
+        vm.openChannel(); vm.updateChannelName("未保存渠道"); vm.closeChannelDraft()
+        assertEquals(original, vm.assetDraft.value)
         assertEquals(2, vm.assetDraft.value!!.balances.size)
         assertEquals(2, vm.state.value.data.activeChannels.size)
-        assertEquals(R.string.error_channel_name, vm.message.value)
+        assertNull(vm.channelDraft.value)
     }
 
     @Test fun channelOrderIsWrittenThroughToTheRepository() {

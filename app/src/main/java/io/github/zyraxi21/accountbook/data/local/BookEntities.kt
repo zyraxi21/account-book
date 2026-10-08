@@ -66,6 +66,7 @@ data class AppSettingsEntity(
     val lastExportAtMillis: Long? = null,
     @ColumnInfo(defaultValue = "1") val hideOnStartup: Boolean = true,
     @ColumnInfo(defaultValue = "0") val allowScreenshots: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val useWanGrouping: Boolean = false,
 )
 
 @Entity(

@@ -18,27 +18,25 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.testTag
 import io.github.zyraxi21.accountbook.R
-import com.microsoft.fluentui.theme.FluentTheme
-import com.microsoft.fluentui.theme.token.FluentAliasTokens.NeutralBackgroundColorTokens
-import com.microsoft.fluentui.theme.token.FluentAliasTokens.NeutralForegroundColorTokens
+import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 
 val LocalBookSnackbar = staticCompositionLocalOf<SnackbarHostState?> { null }
 val LocalAllowScreenshots = staticCompositionLocalOf { false }
 
-/** 短暂提示使用 Fluent 反色表面；编辑弹窗内也提供同一提示宿主。 */
+/** 浅深色模式均使用沉稳的深色提示面，避免暗色界面中出现亮白提示。 */
 @Composable
 fun BookSnackbarHost(modifier: Modifier = Modifier) {
     val state = LocalBookSnackbar.current ?: return
-    val foreground = FluentTheme.aliasTokens.neutralForegroundColor[NeutralForegroundColorTokens.Foreground1].value(FluentTheme.themeMode)
-    val background = FluentTheme.aliasTokens.neutralBackgroundColor[NeutralBackgroundColorTokens.Background2].value(FluentTheme.themeMode)
+    val palette = LocalBookPalette.current
     SnackbarHost(state, modifier.padding(horizontal = 12.dp, vertical = 8.dp)) { data ->
-        Snackbar(modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            containerColor = foreground, contentColor = background, dismissAction = {
+        Snackbar(modifier = Modifier.testTag("book_snackbar").semantics { liveRegion = LiveRegionMode.Polite },
+            containerColor = palette.snackbarSurface, contentColor = palette.onSnackbar, dismissAction = {
                 IconButton(onClick = data::dismiss) {
                     Image(painterResource(R.drawable.ic_close), stringResource(R.string.close),
-                        Modifier.size(20.dp), colorFilter = ColorFilter.tint(background))
+                        Modifier.size(20.dp), colorFilter = ColorFilter.tint(palette.onSnackbar))
                 }
-            }) { BookText(data.visuals.message, size = 14.sp, color = background) }
+            }) { BookText(data.visuals.message, size = 14.sp, color = palette.onSnackbar) }
     }
 }

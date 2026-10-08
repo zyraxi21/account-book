@@ -1,11 +1,8 @@
 package io.github.zyraxi21.accountbook.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +16,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -92,12 +91,22 @@ fun MonthNavigation(month: YearMonth, onPrevious: () -> Unit, onNext: () -> Unit
 /** 返回本月的入口淡入并略微放大，消失时保留退场过渡。 */
 @Composable
 fun CurrentMonthButton(visible: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    AnimatedVisibility(visible, modifier,
-        enter = fadeIn(tween(180)) + scaleIn(tween(180), initialScale = 0.85f),
-        exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.85f)) {
-        FloatingActionButton(onClick = onClick, text = stringResource(R.string.current_month),
-            icon = ImageVector.vectorResource(R.drawable.ic_current_month),
-            modifier = Modifier.testTag("current_month_button"))
+    val transition = updateTransition(visible, label = "current_month_visibility")
+    val progress by transition.animateFloat(transitionSpec = { tween(if (targetState) 180 else 140) },
+        label = "current_month_progress") { if (it) 1f else 0f }
+    if (transition.currentState || transition.targetState) {
+        Box(modifier) {
+            FloatingActionButton(onClick = onClick, text = stringResource(R.string.current_month),
+                icon = ImageVector.vectorResource(R.drawable.ic_current_month),
+                modifier = Modifier.graphicsLayer {
+                    alpha = progress
+                    scaleX = 0.85f + 0.15f * progress
+                    scaleY = scaleX
+                    // 逐次调节绘制透明度，避免半透明离屏图层裁切胶囊阴影成矩形。
+                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                    clip = false
+                }.testTag("current_month_button"))
+        }
     }
 }
 

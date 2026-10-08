@@ -332,10 +332,12 @@ class EncryptedBookRepositoryTest {
         }
     }
 
-    @Test fun versionOneAndTwoMigrateWithoutChangingFinancialData() = runBlocking {
-        for (version in listOf(2, 1)) {
+    @Test fun allPreviousVersionsMigrateWithoutChangingFinancialData() = runBlocking {
+        for (version in listOf(3, 2, 1)) {
             repository.saveIncome(Income("migration-$version", "迁移保留验证", Money(123), now))
             repository.setSmsAutoImport(true)
+            repository.setHideOnStartup(false)
+            repository.setAllowScreenshots(true)
             val original = book()
             database.close()
             val password = DatabaseKeyStore(directory, alias).loadOrCreate(databaseExists = true)
@@ -343,16 +345,21 @@ class EncryptedBookRepositoryTest {
                 val factory = SupportOpenHelperFactory(password)
                 val config = SupportSQLiteOpenHelper.Configuration.builder(context)
                     .name(File(directory, "accountbook.db").absolutePath)
-                    .callback(object : SupportSQLiteOpenHelper.Callback(3) {
+                    .callback(object : SupportSQLiteOpenHelper.Callback(4) {
                         override fun onCreate(db: SupportSQLiteDatabase) = Unit
                         override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
                     }).build()
                 factory.create(config).use { helper ->
                     val db = helper.writableDatabase
                     db.execSQL("ALTER TABLE app_settings RENAME TO settings_before_migration")
-                    val extraColumn = if (version == 2) ", lastExportAtMillis INTEGER" else ""
+                    val extraColumn = when (version) {
+                        3 -> ", lastExportAtMillis INTEGER, hideOnStartup INTEGER NOT NULL DEFAULT 1, allowScreenshots INTEGER NOT NULL DEFAULT 0"
+                        2 -> ", lastExportAtMillis INTEGER"
+                        else -> ""
+                    }
                     db.execSQL("CREATE TABLE app_settings (id INTEGER NOT NULL PRIMARY KEY, smsAutoImportEnabled INTEGER NOT NULL$extraColumn)")
-                    db.execSQL("INSERT INTO app_settings (id, smsAutoImportEnabled) SELECT id, smsAutoImportEnabled FROM settings_before_migration")
+                    val preserved = if (version == 3) ", hideOnStartup, allowScreenshots" else ""
+                    db.execSQL("INSERT INTO app_settings (id, smsAutoImportEnabled$preserved) SELECT id, smsAutoImportEnabled$preserved FROM settings_before_migration")
                     db.execSQL("DROP TABLE settings_before_migration")
                     db.execSQL("PRAGMA user_version = $version")
                 }
@@ -363,10 +370,23 @@ class EncryptedBookRepositoryTest {
             assertEquals(original.snapshots, migrated.snapshots)
             assertEquals(original.incomes, migrated.incomes)
             assertEquals(original.settings.defaultChannelIds, migrated.settings.defaultChannelIds)
-            assertTrue(migrated.settings.hideOnStartup)
-            assertFalse(migrated.settings.allowScreenshots)
+            assertEquals(version != 3, migrated.settings.hideOnStartup)
+            assertEquals(version == 3, migrated.settings.allowScreenshots)
+            assertFalse(migrated.settings.useWanGrouping)
             assertTrue(migrated.settings.smsAutoImportEnabled)
         }
+    }
+
+    @Test fun amountGroupingPersistsAfterRestartAndReplacementKeepsTheDevicePreference() = runBlocking {
+        assertFalse(book().settings.useWanGrouping)
+        repository.setUseWanGrouping(true)
+        database.close(); reopen()
+        assertTrue(book().settings.useWanGrouping)
+        repository.importBook(importedBook(), ImportMode.REPLACE)
+        assertTrue(book().settings.useWanGrouping)
+        repository.setUseWanGrouping(false)
+        database.close(); reopen()
+        assertFalse(book().settings.useWanGrouping)
     }
 
     @Test fun addChannelReturnsTheCreatedChannelForImmediateSelection() = runBlocking {

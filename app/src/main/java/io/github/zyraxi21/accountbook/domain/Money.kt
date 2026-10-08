@@ -13,7 +13,8 @@ value class Money(val fen: Long) : Comparable<Money> {
     operator fun minus(other: Money) = checked { Money(Math.subtractExact(fen, other.fen)) }
     override fun compareTo(other: Money) = fen.compareTo(other.fen)
     fun inputText(): String = BigDecimal.valueOf(fen, 2).toPlainString()
-    fun formatted(): String = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.CHINA)).apply {
+    fun formatted(useWanGrouping: Boolean = false): String = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.CHINA)).apply {
+        groupingSize = if (useWanGrouping) 4 else 3
         roundingMode = RoundingMode.UNNECESSARY
     }.format(BigDecimal.valueOf(fen, 2))
 

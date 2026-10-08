@@ -23,9 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
 import com.microsoft.fluentui.tokenized.controls.Button
-import com.microsoft.fluentui.tokenized.controls.TextField
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.BookData
 import io.github.zyraxi21.accountbook.domain.Money
@@ -113,12 +111,19 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
     val snapshot = data.snapshot(month)
     LazyColumn(Modifier.fillMaxSize().testTag("statement_$month"), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 0.dp, bottom = if (month != currentMonth) 104.dp else 20.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            if (snapshot == null) {
-                item { LedgerCard { SectionHeading(stringResource(R.string.no_assets_title), stringResource(R.string.no_assets_hint)) } }
-            } else {
-                item {
-                    LedgerCard {
-                        BookText(stringResource(R.string.month_short_format, month.year, month.monthValue), size = 14.sp, color = palette.brand)
+            item {
+                LedgerCard {
+                    if (snapshot == null) {
+                        SectionHeading(stringResource(R.string.no_assets_title), stringResource(R.string.no_assets_hint))
+                    } else {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            BookText(stringResource(R.string.month_short_format, month.year, month.monthValue),
+                                Modifier.weight(1f), size = 14.sp, color = palette.brand)
+                            BookIconButton(R.drawable.ic_channel_edit, R.string.edit_assets, onRegister,
+                                Modifier.testTag("register_assets_$month"), enabled = !busy)
+                            BookIconButton(R.drawable.ic_channel_delete, R.string.delete, onDelete,
+                                Modifier.testTag("delete_assets_$month"), enabled = !busy && !hidden, destructive = true)
+                        }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             BookText(stringResource(R.string.asset_channel), size = 13.sp, color = palette.secondary)
                             BookText(stringResource(R.string.asset_amount), size = 13.sp, color = palette.secondary)
@@ -136,14 +141,7 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
                         SummaryRow(stringResource(R.string.net_assets), snapshot.net, hidden, emphasis = true)
                         PrivateText(formatDateTime(snapshot.registeredAt), hidden, size = 12.sp, color = palette.secondary)
                     }
-                }
-            }
-            item {
-                Button(onClick = onRegister, text = stringResource(if (snapshot == null) R.string.register_assets else R.string.edit_assets),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("register_assets_$month"), enabled = !busy)
-            }
-            item {
-                LedgerCard {
+                    LedgerDivider()
                     val summary = result.getOrNull()
                     if (summary == null) BookText(stringResource(R.string.calculation_unavailable), color = palette.negative)
                     else {
@@ -154,9 +152,9 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
                     }
                 }
             }
-            if (snapshot != null) {
-                item { Button(onClick = onDelete, style = ButtonStyle.OutlinedButton, text = stringResource(R.string.delete),
-                    modifier = Modifier.testTag("delete_assets_$month"), enabled = !busy && !hidden) }
+            if (snapshot == null) {
+                item { Button(onClick = onRegister, text = stringResource(R.string.register_assets),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("register_assets_$month"), enabled = !busy) }
             }
     }
 }
@@ -179,11 +177,16 @@ private fun SummaryRow(label: String, money: Money?, hidden: Boolean, emphasis: 
 }
 
 @Composable
-fun AssetEditor(draft: AssetDraft, vm: BookViewModel, busy: Boolean,
+fun AssetEditor(draft: AssetDraft, vm: BookViewModel, busy: Boolean, onAdd: () -> Unit,
                 onRename: (String) -> Unit, onDelete: (String) -> Unit) {
     EditorDialog(stringResource(if (draft.originalMonth == null) R.string.register_assets else R.string.edit_assets), busy,
         vm::closeAssetDraft, stringResource(R.string.save_assets), vm::saveAsset) {
         DateField(draft.registeredAt, vm::updateAssetDate, stringResource(R.string.registration_date))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            BookText(stringResource(R.string.asset_channel), Modifier.weight(1f), weight = FontWeight.Medium)
+            BookIconButton(R.drawable.ic_add, R.string.add_channel, onAdd,
+                Modifier.testTag("add_channel_button"), enabled = !busy)
+        }
         BookText(stringResource(R.string.asset_channels_hint), size = 14.sp, color = LocalBookPalette.current.secondary)
         if (draft.balances.isEmpty()) BookText(stringResource(R.string.channel_none))
         ReorderableChannelCards(draft.balances, { it.channelId }, !busy, vm::reorderAssetChannels) { balance, handle ->
@@ -193,15 +196,7 @@ fun AssetEditor(draft: AssetDraft, vm: BookViewModel, busy: Boolean,
             AmountField(balance.amount, { vm.updateBalance(balance.channelId, it) }, stringResource(R.string.asset_amount),
                 modifier = Modifier.testTag("channel_amount_${balance.channelId}"))
         }
-        // 登记时随手新增渠道：立即创建卡片，金额草稿保持在内存。
         LedgerDivider()
-        BookText(stringResource(R.string.channel_new_label), size = 14.sp, color = LocalBookPalette.current.secondary)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextField(draft.newChannelName, vm::updateNewChannelName, Modifier.weight(1f),
-                label = stringResource(R.string.channel_name), hintText = stringResource(R.string.channel_name_hint))
-            Button(onClick = vm::addChannelToDraft, text = stringResource(R.string.channel_add_button),
-                modifier = Modifier.heightIn(min = 48.dp), enabled = !busy && draft.newChannelName.isNotBlank())
-        }
         AmountField(draft.liability, vm::updateLiability, stringResource(R.string.liability_amount))
     }
 }
