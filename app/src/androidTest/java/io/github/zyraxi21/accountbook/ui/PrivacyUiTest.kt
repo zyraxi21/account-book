@@ -287,11 +287,25 @@ class PrivacyUiTest {
     @Test fun systemHintUsesSnackbarAndPrivacyControlHasNoVisibleTextLabel() {
         launchBook(hasSnapshot = false)
         compose.onAllNodesWithText("隐私").assertCountEquals(0)
+        compose.onAllNodes(hasClickAction() and hasAnyAncestor(hasTestTag("book_top_bar_card"))).assertCountEquals(1)
         compose.onNodeWithText(context.getString(R.string.register_assets)).assertIsNotEnabled()
             .performTouchInput { click() }
         compose.onNodeWithText(context.getString(R.string.privacy_reveal_first)).assertDoesNotExist()
         compose.runOnIdle { assertEquals(null, vm.assetDraft.value); vm.notifyMessage(R.string.sms_grant_failed) }
         compose.onNodeWithText(context.getString(R.string.sms_grant_failed)).assertExists()
+        compose.onNodeWithTag("book_snackbar").assertIsDisplayed()
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithText(context.getString(R.string.register_assets)).assertIsEnabled()
+        capturePreview("gradient-light")
+        val closeAction = compose.onNodeWithTag("book_snackbar").fetchSemanticsNode()
+            .config[SemanticsActions.CustomActions].single { it.label == context.getString(R.string.close) }
+        compose.runOnIdle { assertTrue(closeAction.action()) }
+        compose.onNodeWithText(context.getString(R.string.sms_grant_failed)).assertDoesNotExist()
+        compose.runOnIdle { darkTheme = true; vm.notifyMessage(R.string.sms_grant_failed) }
+        // 原生提示队列在关闭与下一条之间保留短暂间隔，等待新提示完成布局。
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithTag("book_snackbar").isDisplayed() }
+        compose.onNodeWithTag("book_snackbar").assertIsDisplayed()
+        capturePreview("gradient-dark")
     }
 
     @Test fun startupAndScreenshotSwitchesSaveWithoutSuccessMessageAndAboutContainsLocalDataInfo() {

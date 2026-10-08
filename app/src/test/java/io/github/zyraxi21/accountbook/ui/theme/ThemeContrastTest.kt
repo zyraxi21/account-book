@@ -1,11 +1,11 @@
 package io.github.zyraxi21.accountbook.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import com.microsoft.fluentui.theme.token.FluentAliasTokens.BrandColorTokens
 import com.microsoft.fluentui.theme.token.FluentAliasTokens.BrandBackgroundColorTokens
 import com.microsoft.fluentui.theme.token.FluentAliasTokens.NeutralForegroundColorTokens
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.max
@@ -20,13 +20,13 @@ class ThemeContrastTest {
     )
 
     @Test fun defaultPaletteHasReadableTextInBothModes() {
-        for (dark in listOf(false, true)) verifyPalette(bookPalette(BookAliasTokens(null, dark), dark))
+        for (dark in listOf(false, true)) verifyPalette(bookPalette(BookAliasTokens(null, dark), dark), dark)
         assertEquals(Color(0xFF0F6CBD), bookPalette(BookAliasTokens(null, false), false).brand)
     }
 
     @Test fun dynamicPaletteKeepsTextReadableForEverySeedAndMode() {
         for (seed in seeds) for (dark in listOf(false, true)) {
-            verifyPalette(bookPalette(BookAliasTokens(seed, dark), dark))
+            verifyPalette(bookPalette(BookAliasTokens(seed, dark), dark), dark)
         }
     }
 
@@ -48,10 +48,10 @@ class ThemeContrastTest {
     @Test fun systemIconsContrastWithTheActualBarBackgrounds() {
         for (seed in seeds + listOf<Int?>(null)) for (dark in listOf(false, true)) {
             val palette = bookPalette(BookAliasTokens(seed, dark), dark)
-            // 浅色模式的品牌顶栏也需要浅色图标，不能仅按系统是否深色来判断。
-            assertFalse(useDarkSystemBarIcons(palette.topBar))
+            // 圆角卡片位于安全区内，状态栏承托页面背景，导航栏承托底栏表面。
+            assertEquals(!dark, useDarkSystemBarIcons(palette.background))
             assertEquals(!dark, useDarkSystemBarIcons(palette.surface))
-            for (background in listOf(palette.topBar, palette.surface)) {
+            for (background in listOf(palette.background, palette.surface)) {
                 val foreground = if (useDarkSystemBarIcons(background)) Color.Black else Color.White
                 assertContrast(foreground, background)
             }
@@ -71,8 +71,26 @@ class ThemeContrastTest {
         }
     }
 
-    private fun verifyPalette(palette: BookPalette) {
-        assertTrue("提示面不应在深色界面中变为亮白色", relativeLuminance(palette.snackbarSurface) < 0.15)
+    @Test fun gradientButtonsKeepReadableTextAcrossTheGradientAndPressedState() {
+        for (seed in seeds + listOf<Int?>(null)) for (dark in listOf(false, true)) {
+            val palette = bookPalette(BookAliasTokens(seed, dark), dark)
+            for (pressed in listOf(false, true)) {
+                val colors = palette.accentColors(pressed)
+                for (fraction in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {
+                    val background = lerp(colors.first(), colors.last(), fraction)
+                    assertContrast(palette.onTopBar, background)
+                    if (dark) assertTrue("深色渐变不应过亮", relativeLuminance(background) < 0.15)
+                }
+            }
+        }
+    }
+
+    private fun verifyPalette(palette: BookPalette, darkTheme: Boolean) {
+        if (darkTheme) {
+            assertTrue("深色 Snackbar 不应变为亮白色", relativeLuminance(palette.snackbarSurface) < 0.15)
+        } else {
+            assertTrue("浅色 Snackbar 应使用淡品牌色背景", relativeLuminance(palette.snackbarSurface) > 0.5)
+        }
         assertContrast(palette.onSnackbar, palette.snackbarSurface)
         for (background in listOf(palette.background, palette.surface)) {
             for (foreground in listOf(palette.foreground, palette.secondary, palette.brand, palette.positive, palette.negative)) {

@@ -12,7 +12,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -28,7 +27,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
+import com.microsoft.fluentui.theme.token.controlTokens.SnackbarStyle
 import com.microsoft.fluentui.tokenized.controls.Button
+import com.microsoft.fluentui.tokenized.notification.SnackbarState
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.data.transfer.ExportFormat
 import io.github.zyraxi21.accountbook.domain.Channel
@@ -66,7 +67,7 @@ fun BookApp(vm: BookViewModel) {
     val confirmReplace by vm.confirmReplace.collectAsStateWithLifecycle()
     val chooseImportMode by vm.chooseImportMode.collectAsStateWithLifecycle()
     val updateState by vm.updateState.collectAsStateWithLifecycle()
-    val snackbar = remember { SnackbarHostState() }
+    val snackbar = remember { SnackbarState() }
     val palette = LocalBookPalette.current
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -127,8 +128,8 @@ fun BookApp(vm: BookViewModel) {
                 else -> resources.getString(template)
             }
             vm.dismissMessage()
-            snackbar.currentSnackbarData?.dismiss()
-            launch { snackbar.showSnackbar(text, withDismissAction = true) }
+            snackbar.currentSnackbar?.dismiss()
+            launch { snackbar.showSnackbar(text, style = SnackbarStyle.Accent, enableDismiss = true) }
         }
     }
     // About弹层自带提示宿主，因此打开时收起主界面宿主，避免同一条消息出现两次。

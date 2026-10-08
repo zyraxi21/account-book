@@ -13,7 +13,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +31,7 @@ data class BookPalette(
     val background: Color, val surface: Color, val foreground: Color,
     val secondary: Color, val brand: Color, val positive: Color, val negative: Color, val stroke: Color,
     val topBar: Color, val onTopBar: Color,
+    val gradientStart: Color, val gradientEnd: Color,
     val snackbarSurface: Color, val onSnackbar: Color,
 )
 
@@ -46,15 +49,23 @@ internal fun bookPalette(tokens: AliasTokens, darkTheme: Boolean): BookPalette {
         positive = if (darkTheme) Color(0xFF6CCB5F) else Color(0xFF107C10),
         negative = if (darkTheme) Color(0xFFFF9999) else Color(0xFFC50F1F),
         stroke = tokens.neutralStrokeColor[FluentAliasTokens.NeutralStrokeColorTokens.Stroke1].resolve(),
-        topBar = if (darkTheme) tokens.neutralBackgroundColor[FluentAliasTokens.NeutralBackgroundColorTokens.Background2].dark
-            else tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackground1].light,
-        onTopBar = if (darkTheme) tokens.neutralForegroundColor[FluentAliasTokens.NeutralForegroundColorTokens.Foreground1].dark
-            else Color.White,
-        snackbarSurface = if (darkTheme) tokens.neutralBackgroundColor[FluentAliasTokens.NeutralBackgroundColorTokens.Background3].dark
-            else tokens.neutralForegroundColor[FluentAliasTokens.NeutralForegroundColorTokens.Foreground1].light,
-        onSnackbar = tokens.neutralForegroundColor[FluentAliasTokens.NeutralForegroundColorTokens.Foreground1].dark,
+        topBar = tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackground1].resolve(),
+        onTopBar = tokens.neutralForegroundColor[FluentAliasTokens.NeutralForegroundColorTokens.ForegroundOnColor].resolve(),
+        gradientStart = tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackground1Pressed].resolve(),
+        gradientEnd = tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackground1].resolve(),
+        snackbarSurface = tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackgroundTint].resolve(),
+        onSnackbar = tokens.brandForegroundColor[FluentAliasTokens.BrandForegroundColorTokens.BrandForegroundTint].resolve(),
     )
 }
+
+/** 顶栏、填充按钮和 FAB 共用品牌渐变，按压时整体加深。 */
+internal fun BookPalette.accentColors(pressed: Boolean = false): List<Color> {
+    val shade = if (pressed) 0.12f else 0f
+    return listOf(lerp(gradientStart, Color.Black, shade), lerp(gradientEnd, Color.Black, shade))
+}
+
+internal fun BookPalette.accentBrush(pressed: Boolean = false): Brush =
+    Brush.horizontalGradient(accentColors(pressed))
 
 @Composable
 fun AccountBookTheme(
@@ -94,7 +105,8 @@ private fun SystemBarAppearance(palette: BookPalette) {
     SideEffect {
         val window = activity.window
         WindowCompat.getInsetsController(window, view).apply {
-            isAppearanceLightStatusBars = useDarkSystemBarIcons(palette.topBar)
+            // 圆角顶栏与状态栏之间保留页面背景，系统图标按该背景选择明暗。
+            isAppearanceLightStatusBars = useDarkSystemBarIcons(palette.background)
             isAppearanceLightNavigationBars = useDarkSystemBarIcons(palette.surface)
         }
         // 底栏已承托系统导航按钮，关闭系统额外的灰色遮罩。

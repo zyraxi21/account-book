@@ -8,10 +8,13 @@ import com.microsoft.fluentui.theme.token.StateBrush
 import com.microsoft.fluentui.theme.token.StateColor
 import com.microsoft.fluentui.theme.token.controlTokens.*
 
-/** 所有表单和浮层共用表面色，输入框通过底线区分，不再铺设独立黑色底块。 */
+/** 原生 Fluent 控件共用品牌渐变、表面色与提示配色。 */
 internal class BookControlTokens : ControlTokens() {
     init {
         updateToken(ControlType.AppBarControlType, BookAppBarTokens)
+        updateToken(ControlType.ButtonControlType, BookButtonTokens)
+        updateToken(ControlType.FloatingActionButtonControlType, BookFabTokens)
+        updateToken(ControlType.SnackbarControlType, BookSnackbarTokens)
         updateToken(ControlType.TextFieldControlType, BookTextFieldTokens)
         updateToken(ControlType.DialogControlType, BookDialogTokens)
         updateToken(ControlType.BottomSheetControlType, BookBottomSheetTokens)
@@ -19,7 +22,36 @@ internal class BookControlTokens : ControlTokens() {
 }
 
 private object BookAppBarTokens : AppBarTokens() {
-    @Composable override fun backgroundBrush(info: AppBarInfo) = SolidColor(LocalBookPalette.current.topBar)
+    // 渐变由外层圆角卡片承托，保持卡片内外连续。
+    @Composable override fun backgroundBrush(info: AppBarInfo) = SolidColor(Color.Transparent)
+    @Composable override fun titleTextColor(info: AppBarInfo) = LocalBookPalette.current.onTopBar
+}
+
+private object BookButtonTokens : ButtonTokens() {
+    @Composable override fun backgroundBrush(buttonInfo: ButtonInfo): StateBrush {
+        if (buttonInfo.style != ButtonStyle.Button) return super.backgroundBrush(buttonInfo)
+        val palette = LocalBookPalette.current
+        return StateBrush(rest = palette.accentBrush(), pressed = palette.accentBrush(pressed = true),
+            selected = palette.accentBrush(pressed = true), focused = palette.accentBrush(),
+            disabled = super.backgroundBrush(buttonInfo).disabled)
+    }
+}
+
+private object BookFabTokens : FABTokens() {
+    @Composable override fun backgroundBrush(fabInfo: FABInfo): StateBrush {
+        val palette = LocalBookPalette.current
+        return StateBrush(rest = palette.accentBrush(), pressed = palette.accentBrush(pressed = true),
+            focused = palette.accentBrush(), disabled = super.backgroundBrush(fabInfo).disabled)
+    }
+}
+
+private object BookSnackbarTokens : SnackBarTokens() {
+    @Composable override fun backgroundBrush(snackBarInfo: SnackBarInfo) = SolidColor(LocalBookPalette.current.snackbarSurface)
+    @Composable override fun iconColor(snackBarInfo: SnackBarInfo) = LocalBookPalette.current.onSnackbar
+    @Composable override fun titleTypography(snackBarInfo: SnackBarInfo) =
+        super.titleTypography(snackBarInfo).copy(color = LocalBookPalette.current.onSnackbar)
+    @Composable override fun subtitleTypography(snackBarInfo: SnackBarInfo) =
+        super.subtitleTypography(snackBarInfo).copy(color = LocalBookPalette.current.onSnackbar)
 }
 
 private object BookTextFieldTokens : TextFieldTokens() {

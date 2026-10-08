@@ -8,14 +8,18 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -39,6 +43,7 @@ import com.microsoft.fluentui.tokenized.controls.Button
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.ui.theme.AccountBookTheme
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
+import io.github.zyraxi21.accountbook.ui.theme.accentBrush
 
 private object PrivacyButtonTokens : ButtonTokens() {
     @Composable
@@ -50,31 +55,37 @@ private object PrivacyButtonTokens : ButtonTokens() {
     @Composable override fun iconColor(buttonInfo: ButtonInfo) = foreground()
 }
 
-/** 背景先铺满窗口，再对顶栏内容应用状态栏、桌面标题栏和横向挖孔边衬。 */
+/** 圆角品牌卡片位于系统安全区内，仅显示标题和隐私按钮。 */
 @Composable
 fun BookTopBar(hidden: Boolean, onPrivacyClick: () -> Unit, @StringRes title: Int = R.string.app_name) {
     val palette = LocalBookPalette.current
     Box(
-        Modifier.fillMaxWidth().background(palette.topBar)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+        Modifier.fillMaxWidth().background(palette.background)
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        AppBar(
-            title = stringResource(title),
-            style = FluentStyle.Brand,
-            bottomBorder = false,
-            modifier = Modifier.widthIn(max = 840.dp).fillMaxWidth().padding(start = 20.dp, end = 8.dp),
-            rightAccessoryView = {
-                Button(
-                    onClick = onPrivacyClick,
-                    style = ButtonStyle.TextButton,
-                    icon = ImageVector.vectorResource(if (hidden) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                    contentDescription = stringResource(if (hidden) R.string.privacy_show else R.string.privacy_hide),
-                    modifier = Modifier.size(48.dp),
-                    buttonTokens = PrivacyButtonTokens,
-                )
-            },
-        )
+        val shape = RoundedCornerShape(24.dp)
+        Box(Modifier.widthIn(max = 840.dp).fillMaxWidth()
+            .shadow(4.dp, shape).clip(shape).background(palette.accentBrush())
+            .testTag("book_top_bar_card").padding(horizontal = 8.dp, vertical = 8.dp)) {
+            AppBar(
+                title = stringResource(title),
+                style = FluentStyle.Brand,
+                bottomBorder = false,
+                modifier = Modifier.fillMaxWidth(),
+                rightAccessoryView = {
+                    Button(
+                        onClick = onPrivacyClick,
+                        style = ButtonStyle.TextButton,
+                        icon = ImageVector.vectorResource(if (hidden) R.drawable.ic_eye else R.drawable.ic_eye_off),
+                        contentDescription = stringResource(if (hidden) R.string.privacy_show else R.string.privacy_hide),
+                        modifier = Modifier.size(48.dp),
+                        buttonTokens = PrivacyButtonTokens,
+                    )
+                },
+            )
+        }
     }
 }
 
@@ -139,11 +150,11 @@ fun BookBottomBar(selectedIndex: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-@Preview(name = "浅色 · 系统栏与导航", widthDp = 393, heightDp = 852, showSystemUi = true)
+@Preview(name = "浅色：系统栏与导航", widthDp = 393, heightDp = 852, showSystemUi = true)
 @Composable
 private fun LightChromePreview() { ChromePreview(darkTheme = false) }
 
-@Preview(name = "深色 · 系统栏与导航", widthDp = 393, heightDp = 852, showSystemUi = true)
+@Preview(name = "深色：系统栏与导航", widthDp = 393, heightDp = 852, showSystemUi = true)
 @Composable
 private fun DarkChromePreview() { ChromePreview(darkTheme = true) }
 

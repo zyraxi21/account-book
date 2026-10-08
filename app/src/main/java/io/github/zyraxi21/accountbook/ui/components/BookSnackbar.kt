@@ -1,42 +1,44 @@
 package io.github.zyraxi21.accountbook.ui.components
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.Image
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Snackbar
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.dp
+import com.microsoft.fluentui.tokenized.notification.Snackbar
+import com.microsoft.fluentui.tokenized.notification.SnackbarState
 import io.github.zyraxi21.accountbook.R
-import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 
-val LocalBookSnackbar = staticCompositionLocalOf<SnackbarHostState?> { null }
+val LocalBookSnackbar = staticCompositionLocalOf<SnackbarState?> { null }
 val LocalAllowScreenshots = staticCompositionLocalOf { false }
 
-/** 浅深色模式均使用沉稳的深色提示面，避免暗色界面中出现亮白提示。 */
+/** 使用原生 Fluent 提示和关闭动画，浅色为淡品牌色，深色为低亮度品牌色。 */
 @Composable
 fun BookSnackbarHost(modifier: Modifier = Modifier) {
     val state = LocalBookSnackbar.current ?: return
-    val palette = LocalBookPalette.current
-    SnackbarHost(state, modifier.padding(horizontal = 12.dp, vertical = 8.dp)) { data ->
-        Snackbar(modifier = Modifier.testTag("book_snackbar").semantics { liveRegion = LiveRegionMode.Polite },
-            containerColor = palette.snackbarSurface, contentColor = palette.onSnackbar, dismissAction = {
-                IconButton(onClick = data::dismiss) {
-                    Image(painterResource(R.drawable.ic_close), stringResource(R.string.close),
-                        Modifier.size(20.dp), colorFilter = ColorFilter.tint(palette.onSnackbar))
-                }
-            }) { BookText(data.visuals.message, size = 14.sp, color = palette.onSnackbar) }
+    val metadata = state.currentSnackbar ?: return
+    val scope = rememberCoroutineScope()
+    val closeLabel = stringResource(R.string.close)
+    // 库内关闭图标的语义固定为英文，宿主使用资源提供提示文本和中文关闭动作。
+    Box(modifier.widthIn(max = 560.dp).fillMaxWidth().padding(vertical = 8.dp)
+        .testTag("book_snackbar").clearAndSetSemantics {
+            liveRegion = LiveRegionMode.Polite
+            text = AnnotatedString(metadata.message)
+            customActions = listOf(CustomAccessibilityAction(closeLabel) { metadata.dismiss(scope); true })
+        }) {
+        Snackbar(snackbarState = state, enableSwipeToDismiss = true)
     }
 }
