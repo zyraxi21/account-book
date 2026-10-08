@@ -17,8 +17,8 @@ android {
         applicationId = "io.github.zyraxi21.accountbook"
         minSdk = 34
         targetSdk = 37
-        versionCode = 202610072
-        versionName = "2026.10.07.2"
+        versionCode = 202610081
+        versionName = "2026.10.08.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
