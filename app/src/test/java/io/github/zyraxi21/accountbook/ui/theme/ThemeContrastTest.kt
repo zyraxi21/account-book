@@ -6,6 +6,7 @@ import com.microsoft.fluentui.theme.token.FluentAliasTokens.BrandColorTokens
 import com.microsoft.fluentui.theme.token.FluentAliasTokens.BrandBackgroundColorTokens
 import com.microsoft.fluentui.theme.token.FluentAliasTokens.NeutralForegroundColorTokens
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.max
@@ -48,10 +49,10 @@ class ThemeContrastTest {
     @Test fun systemIconsContrastWithTheActualBarBackgrounds() {
         for (seed in seeds + listOf<Int?>(null)) for (dark in listOf(false, true)) {
             val palette = bookPalette(BookAliasTokens(seed, dark), dark)
-            // 圆角卡片位于安全区内，状态栏承托页面背景，导航栏承托底栏表面。
-            assertEquals(!dark, useDarkSystemBarIcons(palette.background))
+            // 顶部渐变延伸到状态栏，浅深色模式均使用浅色状态图标。
+            assertFalse(useDarkSystemBarIcons(palette.gradientStart))
             assertEquals(!dark, useDarkSystemBarIcons(palette.surface))
-            for (background in listOf(palette.background, palette.surface)) {
+            for (background in listOf(palette.gradientStart, palette.gradientEnd, palette.surface)) {
                 val foreground = if (useDarkSystemBarIcons(background)) Color.Black else Color.White
                 assertContrast(foreground, background)
             }
@@ -74,6 +75,8 @@ class ThemeContrastTest {
     @Test fun gradientButtonsKeepReadableTextAcrossTheGradientAndPressedState() {
         for (seed in seeds + listOf<Int?>(null)) for (dark in listOf(false, true)) {
             val palette = bookPalette(BookAliasTokens(seed, dark), dark)
+            assertEquals("渐变末端保留原品牌填充色", palette.topBar, palette.gradientEnd)
+            assertTrue("渐变起点应略亮于品牌色", relativeLuminance(palette.gradientStart) > relativeLuminance(palette.gradientEnd))
             for (pressed in listOf(false, true)) {
                 val colors = palette.accentColors(pressed)
                 for (fraction in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {

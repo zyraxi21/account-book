@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.ViewAction
 import androidx.test.espresso.UiController
@@ -296,7 +297,7 @@ class PrivacyUiTest {
         compose.onNodeWithTag("book_snackbar").assertIsDisplayed()
         compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
         compose.onNodeWithText(context.getString(R.string.register_assets)).assertIsEnabled()
-        capturePreview("gradient-light")
+        capturePreview("gradient-light", includeSystemBars = true)
         val closeAction = compose.onNodeWithTag("book_snackbar").fetchSemanticsNode()
             .config[SemanticsActions.CustomActions].single { it.label == context.getString(R.string.close) }
         compose.runOnIdle { assertTrue(closeAction.action()) }
@@ -305,7 +306,7 @@ class PrivacyUiTest {
         // 原生提示队列在关闭与下一条之间保留短暂间隔，等待新提示完成布局。
         compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithTag("book_snackbar").isDisplayed() }
         compose.onNodeWithTag("book_snackbar").assertIsDisplayed()
-        capturePreview("gradient-dark")
+        capturePreview("gradient-dark", includeSystemBars = true)
     }
 
     @Test fun startupAndScreenshotSwitchesSaveWithoutSuccessMessageAndAboutContainsLocalDataInfo() {
@@ -691,11 +692,13 @@ class PrivacyUiTest {
         return compose.onNode(matcher).performScrollTo()
     }
 
-    private fun capturePreview(name: String, matcher: SemanticsMatcher = isRoot()) {
+    private fun capturePreview(name: String, matcher: SemanticsMatcher = isRoot(), includeSystemBars: Boolean = false) {
         // 仅导出测试替身界面，截图中不包含手机上的实际账务。
         val file = File(context.getExternalFilesDir(null), "ui-verification/$name.png")
         file.parentFile!!.mkdirs()
-        val bitmap = compose.onNode(matcher).captureToImage().asAndroidBitmap()
+        val bitmap = if (includeSystemBars) {
+            checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+        } else compose.onNode(matcher).captureToImage().asAndroidBitmap()
         file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
     }
 

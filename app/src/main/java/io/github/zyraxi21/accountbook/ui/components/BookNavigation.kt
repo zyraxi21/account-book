@@ -55,20 +55,19 @@ private object PrivacyButtonTokens : ButtonTokens() {
     @Composable override fun iconColor(buttonInfo: ButtonInfo) = foreground()
 }
 
-/** 圆角品牌卡片位于系统安全区内，仅显示标题和隐私按钮。 */
+/** 渐变铺满屏幕顶部与状态栏，仅将标题和隐私按钮避开系统安全区。 */
 @Composable
 fun BookTopBar(hidden: Boolean, onPrivacyClick: () -> Unit, @StringRes title: Int = R.string.app_name) {
     val palette = LocalBookPalette.current
+    val shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp)
     Box(
-        Modifier.fillMaxWidth().background(palette.background)
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().shadow(4.dp, shape).clip(shape)
+            .background(palette.accentBrush()).testTag("book_top_bar_card")
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
         contentAlignment = Alignment.Center,
     ) {
-        val shape = RoundedCornerShape(24.dp)
         Box(Modifier.widthIn(max = 840.dp).fillMaxWidth()
-            .shadow(4.dp, shape).clip(shape).background(palette.accentBrush())
-            .testTag("book_top_bar_card").padding(horizontal = 8.dp, vertical = 8.dp)) {
+            .padding(horizontal = 12.dp, vertical = 8.dp)) {
             AppBar(
                 title = stringResource(title),
                 style = FluentStyle.Brand,

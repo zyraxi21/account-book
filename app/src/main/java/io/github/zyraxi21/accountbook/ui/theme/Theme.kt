@@ -39,6 +39,7 @@ val LocalBookPalette = staticCompositionLocalOf { bookPalette(AliasTokens(), dar
 
 internal fun bookPalette(tokens: AliasTokens, darkTheme: Boolean): BookPalette {
     fun FluentColor.resolve(): Color = if (darkTheme) dark else light
+    val accent = tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackground1].resolve()
     return BookPalette(
         background = tokens.neutralBackgroundColor[FluentAliasTokens.NeutralBackgroundColorTokens.CanvasBackground].resolve(),
         surface = tokens.neutralBackgroundColor[FluentAliasTokens.NeutralBackgroundColorTokens.Background2].resolve(),
@@ -49,23 +50,24 @@ internal fun bookPalette(tokens: AliasTokens, darkTheme: Boolean): BookPalette {
         positive = if (darkTheme) Color(0xFF6CCB5F) else Color(0xFF107C10),
         negative = if (darkTheme) Color(0xFFFF9999) else Color(0xFFC50F1F),
         stroke = tokens.neutralStrokeColor[FluentAliasTokens.NeutralStrokeColorTokens.Stroke1].resolve(),
-        topBar = tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackground1].resolve(),
+        topBar = accent,
         onTopBar = tokens.neutralForegroundColor[FluentAliasTokens.NeutralForegroundColorTokens.ForegroundOnColor].resolve(),
-        gradientStart = tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackground1Pressed].resolve(),
-        gradientEnd = tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackground1].resolve(),
+        // 只提亮品牌填充色少许，保持色相一致，避免跨色阶形成明显色带。
+        gradientStart = lerp(accent, Color.White, 0.04f),
+        gradientEnd = accent,
         snackbarSurface = tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackgroundTint].resolve(),
         onSnackbar = tokens.brandForegroundColor[FluentAliasTokens.BrandForegroundColorTokens.BrandForegroundTint].resolve(),
     )
 }
 
-/** 顶栏、填充按钮和 FAB 共用品牌渐变，按压时整体加深。 */
+/** 顶栏、填充按钮和 FAB 共用由略亮品牌色向原色过渡的垂直渐变，按压时整体加深。 */
 internal fun BookPalette.accentColors(pressed: Boolean = false): List<Color> {
     val shade = if (pressed) 0.12f else 0f
     return listOf(lerp(gradientStart, Color.Black, shade), lerp(gradientEnd, Color.Black, shade))
 }
 
 internal fun BookPalette.accentBrush(pressed: Boolean = false): Brush =
-    Brush.horizontalGradient(accentColors(pressed))
+    Brush.verticalGradient(accentColors(pressed))
 
 @Composable
 fun AccountBookTheme(
@@ -105,8 +107,8 @@ private fun SystemBarAppearance(palette: BookPalette) {
     SideEffect {
         val window = activity.window
         WindowCompat.getInsetsController(window, view).apply {
-            // 圆角顶栏与状态栏之间保留页面背景，系统图标按该背景选择明暗。
-            isAppearanceLightStatusBars = useDarkSystemBarIcons(palette.background)
+            // 状态栏也由品牌渐变承托，与标题和隐私图标共用浅色前景。
+            isAppearanceLightStatusBars = useDarkSystemBarIcons(palette.gradientStart)
             isAppearanceLightNavigationBars = useDarkSystemBarIcons(palette.surface)
         }
         // 底栏已承托系统导航按钮，关闭系统额外的灰色遮罩。
