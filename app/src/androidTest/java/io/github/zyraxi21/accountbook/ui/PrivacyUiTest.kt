@@ -23,6 +23,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
@@ -120,6 +123,41 @@ class PrivacyUiTest {
         compose.runOnIdle { darkTheme = true }
         compose.onNodeWithContentDescription(context.getString(R.string.select_date)).performClick()
         closeNativeDatePicker()
+    }
+
+    @Test fun registeringAssetBalanceKeepsTheCaretWhileTyping() {
+        assertAssetBalanceCaret(editing = false)
+    }
+
+    @Test fun editingAssetBalanceKeepsTheCaretWhileTyping() {
+        assertAssetBalanceCaret(editing = true)
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    private fun assertAssetBalanceCaret(editing: Boolean) {
+        launchBook(hasSnapshot = editing)
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        compose.onNodeWithTag("register_assets_${vm.thisMonth}").performClick()
+        val balance = compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("channel_amount_bank")),
+            useUnmergedTree = true)
+        balance.performTextClearance()
+        var expected = ""
+        // 分次输入，检查每一位之后的光标，避免整段粘贴掩盖输入回退问题。
+        for (digit in "1234.56") {
+            balance.performTextInput(digit.toString())
+            expected += digit
+            balance.assertTextEquals(expected)
+            balance.assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(expected.length)))
+        }
+        // 用户移动光标后应继续在选定位置编辑，不能强行跳到末尾。
+        balance.performTextInputSelection(TextRange(2))
+        balance.performTextInput("9")
+        balance.assertTextEquals("12934.56")
+        balance.assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(3)))
+        balance.performKeyInput { pressKey(Key.Backspace) }
+        balance.assertTextEquals("1234.56")
+        balance.assert(SemanticsMatcher.expectValue(SemanticsProperties.TextSelectionRange, TextRange(2)))
+        compose.runOnIdle { assertEquals("1234.56", vm.assetDraft.value!!.balances.single().amount) }
     }
 
     @Test fun swipesNavigateMonthsAndCurrentMonthCannotAdvance() {

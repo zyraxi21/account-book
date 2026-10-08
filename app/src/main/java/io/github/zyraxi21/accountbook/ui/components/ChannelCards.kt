@@ -58,8 +58,11 @@ private val ChannelPlacement = BoundsTransform { _, _ ->
 fun <T> ReorderableChannelCards(items: List<T>, itemId: (T) -> String, enabled: Boolean,
                                onReorder: (List<String>) -> Unit,
                                content: @Composable ColumnScope.(T, Modifier) -> Unit) {
-    var ordered by remember { mutableStateOf(items) }
-    val currentItems by rememberUpdatedState(items)
+    val ids = items.map(itemId)
+    // 只缓存拖动顺序，卡片内容直接读取最新数据，避免旧余额回写使输入光标退位。
+    var orderedIds by remember { mutableStateOf(ids) }
+    val currentIds by rememberUpdatedState(ids)
+    val itemsById = items.associateBy(itemId)
     val commitOrder by rememberUpdatedState(onReorder)
     val bounds = remember { mutableStateMapOf<String, Rect>() }
     var draggingId by remember { mutableStateOf<String?>(null) }
@@ -68,19 +71,19 @@ fun <T> ReorderableChannelCards(items: List<T>, itemId: (T) -> String, enabled: 
     val moveUp = stringResource(R.string.move_up)
     val moveDown = stringResource(R.string.move_down)
     val dragLabel = stringResource(R.string.channel_drag_handle)
-    LaunchedEffect(items) { ordered = items }
+    LaunchedEffect(ids) { orderedIds = ids }
 
     fun move(from: Int, to: Int) {
-        if (!enabled || to !in ordered.indices) return
-        ordered = ordered.toMutableList().apply { add(to, removeAt(from)) }
-        commitOrder(ordered.map(itemId))
+        if (!enabled || to !in orderedIds.indices) return
+        orderedIds = orderedIds.toMutableList().apply { add(to, removeAt(from)) }
+        commitOrder(orderedIds)
     }
 
     LookaheadScope {
         val lookahead = this
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ordered.forEachIndexed { index, item ->
-                val id = itemId(item)
+            orderedIds.forEachIndexed { index, id ->
+                val item = itemsById[id] ?: return@forEachIndexed
                 key(id) {
                     val dragging = id == draggingId
                     DisposableEffect(id) { onDispose { bounds.remove(id) } }
@@ -100,7 +103,7 @@ fun <T> ReorderableChannelCards(items: List<T>, itemId: (T) -> String, enabled: 
                             if (!enabled) return@pointerInput
                             fun cancelDrag() {
                                 if (draggingId == id) {
-                                    ordered = currentItems
+                                    orderedIds = currentIds
                                     draggingId = null
                                     dragDelta = 0f
                                 }
@@ -117,16 +120,16 @@ fun <T> ReorderableChannelCards(items: List<T>, itemId: (T) -> String, enabled: 
                                         dragDelta += amount.y
                                         val target = dragStartCenter + dragDelta
                                         val targetId = bounds.minByOrNull { abs(it.value.center.y - target) }?.key
-                                        val from = ordered.indexOfFirst { itemId(it) == id }
-                                        val to = ordered.indexOfFirst { itemId(it) == targetId }
+                                        val from = orderedIds.indexOf(id)
+                                        val to = orderedIds.indexOf(targetId)
                                         if (from >= 0 && to >= 0 && from != to) {
-                                            ordered = ordered.toMutableList().apply { add(to, removeAt(from)) }
+                                            orderedIds = orderedIds.toMutableList().apply { add(to, removeAt(from)) }
                                         }
                                     },
                                     onDragEnd = {
                                         draggingId = null
                                         dragDelta = 0f
-                                        commitOrder(ordered.map(itemId))
+                                        commitOrder(orderedIds)
                                     },
                                     onDragCancel = ::cancelDrag,
                                 )
