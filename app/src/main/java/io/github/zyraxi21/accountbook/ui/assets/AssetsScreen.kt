@@ -154,9 +154,9 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
                     else {
                         SummaryRow(stringResource(R.string.monthly_income), summary.monthlyIncome, hidden)
                         SummaryRow(stringResource(R.string.asset_difference), summary.assetDifference, hidden, signed = true)
-                        // 公式收进问号图标，正文只留结论。
+                        // 公式收进问号图标，正文只留结论；图标紧跟在「估算月支出」后面。
                         SummaryRow(stringResource(R.string.estimated_expense), summary.estimatedExpense, hidden,
-                            trailing = { HelpIcon { estimateHintVisible = true } })
+                            labelSuffix = { HelpIcon { estimateHintVisible = true } })
                     }
                 }
             }
@@ -169,11 +169,16 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
 
 @Composable
 private fun SummaryRow(label: String, money: Money?, hidden: Boolean, emphasis: Boolean = false, signed: Boolean = false,
-                       trailing: (@Composable () -> Unit)? = null) {
+                       /** 跟在标签文字后面，而不是跟在金额后面。 */
+                       labelSuffix: (@Composable () -> Unit)? = null) {
     val palette = LocalBookPalette.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        BookText(label, Modifier.weight(1f), if (emphasis) 18.sp else 14.sp,
-            if (emphasis) FontWeight.SemiBold else FontWeight.Normal, if (emphasis) palette.brand else palette.secondary)
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            BookText(label, size = if (emphasis) 18.sp else 14.sp,
+                weight = if (emphasis) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (emphasis) palette.brand else palette.secondary)
+            labelSuffix?.invoke()
+        }
         if (money == null) BookText(stringResource(R.string.no_previous_month), size = 12.sp, color = palette.secondary)
         else MoneyText(money, hidden, large = emphasis, color = when {
             hidden -> palette.secondary
@@ -182,11 +187,10 @@ private fun SummaryRow(label: String, money: Money?, hidden: Boolean, emphasis: 
             signed && money.fen < 0 -> palette.negative
             else -> palette.foreground
         })
-        trailing?.invoke()
     }
 }
 
-/** 紧跟结论的问号图标，点开查看计算口径。保留 48dp 触摸区。 */
+/** 紧跟标签文字的问号图标，点开查看计算口径。保留 48dp 触摸区。 */
 @Composable
 private fun HelpIcon(onClick: () -> Unit) {
     BookIconButton(R.drawable.ic_help, R.string.estimate_hint_title, onClick)
