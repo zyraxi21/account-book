@@ -1,7 +1,9 @@
 package io.github.zyraxi21.accountbook.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -83,11 +85,17 @@ fun BookApp(vm: BookViewModel) {
     var deleteAsset by remember { mutableStateOf<YearMonth?>(null) }
     var deleteIncome by remember { mutableStateOf<Income?>(null) }
     var deleteChannel by remember { mutableStateOf<Channel?>(null) }
-    var permissionExplanation by remember { mutableStateOf(false) }
     var smsPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         smsPermission = granted
-        if (granted) vm.setSmsEnabled(true) else vm.notifyMessage(R.string.sms_grant_failed)
+        when {
+            granted -> vm.setSmsEnabled(true)
+            // 系统仍会弹窗时只提示一句，下次点开关会再问；
+            // 不再弹窗（选过“不再询问”或被设备策略禁止）才引导到应用权限设置页。
+            context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.RECEIVE_SMS) == true ->
+                vm.notifyMessage(R.string.sms_grant_failed)
+            else -> openAppPermissionSettings(context)
+        }
     }
     // 每个格式使用固定 MIME 的独立合约，避免重组尚未更新合约就启动旧格式选择器。
     val jsonLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(ExportFormat.JSON.mimeType), vm::completeExport)
@@ -133,7 +141,7 @@ fun BookApp(vm: BookViewModel) {
         }
     }
     // About弹层自带提示宿主，因此打开时收起主界面宿主，避免同一条消息出现两次。
-    val modalVisible = aboutVisible || updateDialogVisible || chooseImportMode || confirmReplace || permissionExplanation ||
+    val modalVisible = aboutVisible || updateDialogVisible || chooseImportMode || confirmReplace ||
         (!hidden && (assetDraft != null || incomeDraft != null || channelDraft != null || smsText != null ||
             deleteAsset != null || deleteIncome != null || deleteChannel != null))
     CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots,
@@ -164,10 +172,13 @@ fun BookApp(vm: BookViewModel) {
                         else -> SettingsScreen(state.data, hidden, busy || transferBusy, smsPermission, transferEnabled = vm.transferAvailable && !hidden && state.storageError == null,
                             transferProgress = transferProgress,
                             onSmsChange = { enabled ->
-                                if (!enabled || smsPermission) vm.setSmsEnabled(enabled) else permissionExplanation = true
+                                // 开启时若还未授权，直接拉起系统权限弹窗，不再先弹一层解释。
+                                when {
+                                    !enabled -> vm.setSmsEnabled(false)
+                                    smsPermission -> vm.setSmsEnabled(true)
+                                    else -> permissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
+                                }
                             },
-                            onPermissionSettings = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                Uri.fromParts("package", context.packageName, null))) },
                             onExportJson = { vm.startExport(ExportFormat.JSON) },
                             onExportCsv = { vm.startExport(ExportFormat.CSV) },
                             onImport = vm::requestImport, onHideOnStartup = vm::setHideOnStartup,
@@ -215,13 +226,6 @@ fun BookApp(vm: BookViewModel) {
                 BookText(stringResource(R.string.import_replace_message))
             }
         }
-        if (permissionExplanation) {
-            EditorDialog(stringResource(R.string.sms_permission_required), busy = false, onClose = { permissionExplanation = false },
-                saveLabel = stringResource(R.string.request_permission), onSave = {
-                    permissionExplanation = false
-                    permissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
-                }) { BookText(stringResource(R.string.sms_permission_explanation)) }
-        }
         // 关于页以底部弹层显示，设置页和底部导航保持可见，下滑或点击遮罩即可关闭。
         if (aboutVisible) AboutScreen(vm) { aboutVisible = false }
         if (updateDialogVisible) UpdateDialogs(updateState, vm, snackbarHost = !aboutVisible)
@@ -236,4 +240,19 @@ private fun displayName(context: Context, uri: Uri?): String {
             if (cursor.moveToFirst()) cursor.getString(0) else null
         }
     }.getOrNull().orEmpty()
+}
+
+/** 权限回调里需要 Activity 才能判断系统是否还会弹窗，这里沿 Context 链找到宿主。 */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+/** 系统不再展示权限弹窗时，只能由用户到应用权限页手动开启。 */
+private fun openAppPermissionSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", context.packageName, null))
+    // 部分 ROM 会拒绝该跳转，失败时静默处理，不因跳不过去而崩溃。
+    runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }

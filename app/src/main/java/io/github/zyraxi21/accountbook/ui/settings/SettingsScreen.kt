@@ -36,7 +36,7 @@ import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 @Composable
 fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission: Boolean, transferEnabled: Boolean,
                    transferProgress: Int?,
-                   onSmsChange: (Boolean) -> Unit, onPermissionSettings: () -> Unit,
+                   onSmsChange: (Boolean) -> Unit,
                    onExportJson: () -> Unit, onExportCsv: () -> Unit, onImport: () -> Unit,
                    onHideOnStartup: (Boolean) -> Unit, onAllowScreenshots: (Boolean) -> Unit,
                    onUseWanGrouping: (Boolean) -> Unit, onDifferenceUsesNet: (Boolean) -> Unit, onAbout: () -> Unit) {
@@ -49,7 +49,6 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
             // 开关本身已经说明是否开启，只在缺权限时补一句原因。
             if (!smsPermission) {
                 BookText(stringResource(R.string.sms_unavailable), size = 13.sp, color = palette.brand)
-                Button(onClick = onPermissionSettings, text = stringResource(R.string.open_system_settings), style = ButtonStyle.OutlinedButton)
             }
         } }
         item { LedgerCard {

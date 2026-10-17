@@ -79,11 +79,7 @@
     <string name="sms_auto_import">自动登记工行收入</string>
     <string name="sms_auto_hint">开启并授权后，来自95588的工行收入短信自动入账。短信余额不会修改资产表。</string>
     <string name="sms_unavailable">接收短信权限未授予，自动登记不可用。仍可使用粘贴解析。</string>
-    <string name="sms_grant_failed">未获得短信权限。请检查系统设置和安装器授权，或使用粘贴解析。</string>
-    <string name="sms_permission_required">需要接收短信权限</string>
-    <string name="sms_permission_explanation">用于在本机解析新收到的工行收入短信。不会读取历史短信、发送短信或联网。</string>
-    <string name="request_permission">授权接收短信</string>
-    <string name="open_system_settings">打开应用权限设置</string>
+    <string name="sms_grant_failed">未获得短信权限。请再次开启自动登记以重新授权，或使用粘贴解析。</string>
     <string name="channel_drag_handle">长按拖动排序</string>
     <string name="move_up">上移</string>
     <string name="move_down">下移</string>
