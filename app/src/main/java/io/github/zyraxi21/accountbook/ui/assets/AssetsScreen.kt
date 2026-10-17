@@ -53,6 +53,7 @@ import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.BookData
 import io.github.zyraxi21.accountbook.domain.Money
 import io.github.zyraxi21.accountbook.ui.AssetDraft
+import io.github.zyraxi21.accountbook.ui.BalanceDraft
 import io.github.zyraxi21.accountbook.ui.BookViewModel
 import io.github.zyraxi21.accountbook.ui.components.*
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
@@ -362,27 +363,51 @@ private class TooltipPosition(
 
 @Composable
 fun AssetEditor(draft: AssetDraft, vm: BookViewModel, busy: Boolean, onAdd: () -> Unit,
-                onRename: (String) -> Unit, onDelete: (String) -> Unit) {
-    EditorDialog(stringResource(if (draft.originalMonth == null) R.string.register_assets else R.string.edit_assets), busy,
-        vm::closeAssetDraft, stringResource(R.string.save_assets), vm::saveAsset) {
-        DateField(draft.registeredAt, vm::updateAssetDate, stringResource(R.string.registration_date))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            BookText(stringResource(R.string.asset_channel), Modifier.weight(1f), weight = FontWeight.Medium)
-            BookIconButton(R.drawable.ic_add, R.string.add_channel, onAdd,
-                Modifier.testTag("add_channel_button"), enabled = !busy)
+                onRename: (String) -> Unit) {
+    // 删除确认做成同一个弹窗的第二层内容：另开一个 Dialog 会把编辑器顶掉，
+    // 两层遮罩叠在一起也会让背景明显更暗。取消只退回编辑内容，草稿始终留在 ViewModel 里。
+    var pendingDelete by remember { mutableStateOf<BalanceDraft?>(null) }
+    val confirming = pendingDelete
+    EditorDialog(
+        title = if (confirming == null) {
+            stringResource(if (draft.originalMonth == null) R.string.register_assets else R.string.edit_assets)
+        } else stringResource(R.string.delete_channel_title),
+        busy = busy,
+        onClose = { if (confirming == null) vm.closeAssetDraft() else pendingDelete = null },
+        saveLabel = stringResource(if (confirming == null) R.string.save_assets else R.string.delete),
+        onSave = {
+            val target = pendingDelete
+            if (target == null) vm.saveAsset()
+            else {
+                pendingDelete = null
+                vm.deleteChannel(target.channelId)
+            }
+        },
+        destructive = confirming != null,
+    ) {
+        if (confirming == null) {
+            DateField(draft.registeredAt, vm::updateAssetDate, stringResource(R.string.registration_date))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                BookText(stringResource(R.string.asset_channel), Modifier.weight(1f), weight = FontWeight.Medium)
+                BookIconButton(R.drawable.ic_add, R.string.add_channel, onAdd,
+                    Modifier.testTag("add_channel_button"), enabled = !busy)
+            }
+            BookText(stringResource(R.string.asset_channels_hint), size = 14.sp, color = LocalBookPalette.current.secondary)
+            if (draft.balances.isEmpty()) BookText(stringResource(R.string.channel_none))
+            ReorderableChannelCards(draft.balances, { it.channelId }, !busy, vm::reorderAssetChannels) { balance, handle ->
+                ChannelCardHeader(balance.channelId, balance.name, balance.active, !busy,
+                    onEdit = { onRename(balance.channelId) },
+                    onDelete = { pendingDelete = balance }, dragHandleModifier = handle)
+                if (!balance.active) BookText(stringResource(R.string.channel_historical), size = 12.sp, color = LocalBookPalette.current.secondary)
+                AmountField(balance.amount, { vm.updateBalance(balance.channelId, it) }, stringResource(R.string.asset_amount),
+                    modifier = Modifier.testTag("channel_amount_${balance.channelId}"))
+            }
+            LedgerDivider()
+            AmountField(draft.receivable, vm::updateReceivable, stringResource(R.string.receivable_amount))
+            AmountField(draft.liability, vm::updateLiability, stringResource(R.string.liability_amount))
+        } else {
+            BookText(stringResource(R.string.delete_channel_hint))
         }
-        BookText(stringResource(R.string.asset_channels_hint), size = 14.sp, color = LocalBookPalette.current.secondary)
-        if (draft.balances.isEmpty()) BookText(stringResource(R.string.channel_none))
-        ReorderableChannelCards(draft.balances, { it.channelId }, !busy, vm::reorderAssetChannels) { balance, handle ->
-            ChannelCardHeader(balance.channelId, balance.name, balance.active, !busy,
-                onEdit = { onRename(balance.channelId) }, onDelete = { onDelete(balance.channelId) }, dragHandleModifier = handle)
-            if (!balance.active) BookText(stringResource(R.string.channel_historical), size = 12.sp, color = LocalBookPalette.current.secondary)
-            AmountField(balance.amount, { vm.updateBalance(balance.channelId, it) }, stringResource(R.string.asset_amount),
-                modifier = Modifier.testTag("channel_amount_${balance.channelId}"))
-        }
-        LedgerDivider()
-        AmountField(draft.receivable, vm::updateReceivable, stringResource(R.string.receivable_amount))
-        AmountField(draft.liability, vm::updateLiability, stringResource(R.string.liability_amount))
     }
 }
 

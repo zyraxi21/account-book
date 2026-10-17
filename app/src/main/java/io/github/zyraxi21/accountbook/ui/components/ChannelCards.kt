@@ -182,6 +182,6 @@ fun ChannelCardHeader(id: String, name: String, active: Boolean, enabled: Boolea
         BookIconButton(R.drawable.ic_channel_edit, R.string.rename_channel, onEdit,
             Modifier.testTag("channel_edit_$id"), enabled = enabled && active)
         BookIconButton(R.drawable.ic_channel_delete, R.string.delete_channel, onDelete,
-            Modifier.testTag("channel_delete_$id"), enabled = enabled && active, destructive = true)
+            Modifier.testTag("channel_delete_$id"), enabled = enabled && active)
     }
 }

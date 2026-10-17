@@ -34,7 +34,6 @@ import com.microsoft.fluentui.tokenized.controls.Button
 import com.microsoft.fluentui.tokenized.notification.SnackbarState
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.data.transfer.ExportFormat
-import io.github.zyraxi21.accountbook.domain.Channel
 import io.github.zyraxi21.accountbook.domain.Income
 import io.github.zyraxi21.accountbook.domain.ImportMode
 import io.github.zyraxi21.accountbook.ui.assets.AssetEditor
@@ -84,7 +83,6 @@ fun BookApp(vm: BookViewModel) {
     var aboutVisible by remember { mutableStateOf(false) }
     var deleteAsset by remember { mutableStateOf<YearMonth?>(null) }
     var deleteIncome by remember { mutableStateOf<Income?>(null) }
-    var deleteChannel by remember { mutableStateOf<Channel?>(null) }
     var smsPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         smsPermission = granted
@@ -143,7 +141,7 @@ fun BookApp(vm: BookViewModel) {
     // About弹层自带提示宿主，因此打开时收起主界面宿主，避免同一条消息出现两次。
     val modalVisible = aboutVisible || updateDialogVisible || chooseImportMode || confirmReplace ||
         (!hidden && (assetDraft != null || incomeDraft != null || channelDraft != null || smsText != null ||
-            deleteAsset != null || deleteIncome != null || deleteChannel != null))
+            deleteAsset != null || deleteIncome != null))
     CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots,
         LocalUseWanGrouping provides state.data.settings.useWanGrouping) {
         Column(Modifier.fillMaxSize().background(palette.background), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -192,11 +190,11 @@ fun BookApp(vm: BookViewModel) {
             BookBottomBar(selectedIndex = tab, onSelect = { aboutVisible = false; tab = it })
         }
         if (!hidden && state.storageError == null) {
-            if (channelDraft == null && deleteChannel == null) assetDraft?.let { draft ->
+            // 渠道删除确认在编辑弹窗内部切换内容，不再需要额外的弹窗状态，也不会顶掉编辑器。
+            if (channelDraft == null) assetDraft?.let { draft ->
                 AssetEditor(draft, vm, busy,
                     onAdd = { vm.openChannel() },
-                    onRename = { id -> state.data.channels.firstOrNull { it.id == id }?.let(vm::openChannel) },
-                    onDelete = { id -> deleteChannel = state.data.channels.firstOrNull { it.id == id } })
+                    onRename = { id -> state.data.channels.firstOrNull { it.id == id }?.let(vm::openChannel) })
             }
             incomeDraft?.let { IncomeEditor(it, vm, busy, editingExisting = state.data.incomes.any { income -> income.id == it.id }) }
             channelDraft?.let { ChannelEditor(it, vm, busy) }
@@ -207,8 +205,6 @@ fun BookApp(vm: BookViewModel) {
             }
             deleteIncome?.let { income -> ConfirmDialog(stringResource(R.string.delete_record_title), stringResource(R.string.delete_income_hint), busy,
                 { deleteIncome = null }, { deleteIncome = null; vm.deleteIncome(income.id) }) }
-            deleteChannel?.let { channel -> ConfirmDialog(stringResource(R.string.delete_channel_title), stringResource(R.string.delete_channel_hint), busy,
-                { deleteChannel = null }, { deleteChannel = null; vm.deleteChannel(channel.id) }) }
         }
         if (chooseImportMode) {
             EditorDialog(stringResource(R.string.import_choose_title), busy = transferBusy, onClose = vm::cancelImport,
