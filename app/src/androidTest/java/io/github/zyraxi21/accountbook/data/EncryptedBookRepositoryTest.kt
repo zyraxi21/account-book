@@ -333,11 +333,18 @@ class EncryptedBookRepositoryTest {
     }
 
     @Test fun allPreviousVersionsMigrateWithoutChangingFinancialData() = runBlocking {
-        for (version in listOf(3, 2, 1)) {
+        for (version in listOf(4, 3, 2, 1)) {
             repository.saveIncome(Income("migration-$version", "迁移保留验证", Money(123), now))
             repository.setSmsAutoImport(true)
             repository.setHideOnStartup(false)
             repository.setAllowScreenshots(true)
+            // 写一张资产表，验证从旧结构迁移时债权列会被补成 0 而不是丢失整条记录。
+            // 每个版本用不同月份，因为同一个库在循环里被反复复用。
+            val at = now.atZone(BOOK_ZONE).minusMonths(version.toLong() * 2).toInstant()
+            val month = java.time.YearMonth.from(at.atZone(BOOK_ZONE))
+            val bank = book().activeChannels.first()
+            repository.saveAsset(MonthlyAssetSnapshot(at,
+                listOf(ChannelBalance(bank.id, bank.name, Money(500))), Money(100)))
             val original = book()
             database.close()
             val password = DatabaseKeyStore(directory, alias).loadOrCreate(databaseExists = true)
@@ -345,22 +352,22 @@ class EncryptedBookRepositoryTest {
                 val factory = SupportOpenHelperFactory(password)
                 val config = SupportSQLiteOpenHelper.Configuration.builder(context)
                     .name(File(directory, "accountbook.db").absolutePath)
-                    .callback(object : SupportSQLiteOpenHelper.Callback(4) {
+                    // 与 BookDatabase 的 version 保持一致，否则会被判定为降级。
+                    .callback(object : SupportSQLiteOpenHelper.Callback(5) {
                         override fun onCreate(db: SupportSQLiteDatabase) = Unit
                         override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
                     }).build()
                 factory.create(config).use { helper ->
                     val db = helper.writableDatabase
-                    db.execSQL("ALTER TABLE app_settings RENAME TO settings_before_migration")
-                    val extraColumn = when (version) {
-                        3 -> ", lastExportAtMillis INTEGER, hideOnStartup INTEGER NOT NULL DEFAULT 1, allowScreenshots INTEGER NOT NULL DEFAULT 0"
-                        2 -> ", lastExportAtMillis INTEGER"
-                        else -> ""
+                    // 逐列削回旧版本的表结构，让每个 MIGRATION 的 ALTER 都真正被执行到。
+                    val laterSettings = buildList {
+                        if (version < 2) add("lastExportAtMillis")
+                        if (version < 3) addAll(listOf("hideOnStartup", "allowScreenshots"))
+                        if (version < 4) add("useWanGrouping")
+                        if (version < 5) add("differenceUsesNet")
                     }
-                    db.execSQL("CREATE TABLE app_settings (id INTEGER NOT NULL PRIMARY KEY, smsAutoImportEnabled INTEGER NOT NULL$extraColumn)")
-                    val preserved = if (version == 3) ", hideOnStartup, allowScreenshots" else ""
-                    db.execSQL("INSERT INTO app_settings (id, smsAutoImportEnabled$preserved) SELECT id, smsAutoImportEnabled$preserved FROM settings_before_migration")
-                    db.execSQL("DROP TABLE settings_before_migration")
+                    laterSettings.forEach { db.execSQL("ALTER TABLE app_settings DROP COLUMN $it") }
+                    db.execSQL("ALTER TABLE monthly_assets DROP COLUMN receivableFen")
                     db.execSQL("PRAGMA user_version = $version")
                 }
             } finally { password.fill(0) }
@@ -370,9 +377,13 @@ class EncryptedBookRepositoryTest {
             assertEquals(original.snapshots, migrated.snapshots)
             assertEquals(original.incomes, migrated.incomes)
             assertEquals(original.settings.defaultChannelIds, migrated.settings.defaultChannelIds)
-            assertEquals(version != 3, migrated.settings.hideOnStartup)
-            assertEquals(version == 3, migrated.settings.allowScreenshots)
+            // v3 起才有这两项偏好；更早的版本导入后应得到默认值。
+            assertEquals("v$version 的隐藏偏好", version < 3, migrated.settings.hideOnStartup)
+            assertEquals("v$version 的截屏偏好", version >= 3, migrated.settings.allowScreenshots)
             assertFalse(migrated.settings.useWanGrouping)
+            // v5 新增的债权列必须补成 0，而不是让迁移失败或留有脏值。
+            assertEquals("v$version 的债权默认值", Money.ZERO, migrated.snapshot(month)!!.receivable)
+            assertTrue("v$version 的差额口径默认按净资产", migrated.settings.differenceUsesNet)
             assertTrue(migrated.settings.smsAutoImportEnabled)
         }
     }

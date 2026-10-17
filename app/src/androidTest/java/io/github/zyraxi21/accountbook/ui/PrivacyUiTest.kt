@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import io.github.zyraxi21.accountbook.ui.components.CurrentMonthButton
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 import io.github.zyraxi21.accountbook.data.transfer.BookTransfer
+import io.github.zyraxi21.accountbook.data.update.UpdateRepository
 import org.hamcrest.Matcher
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.*
@@ -171,6 +172,8 @@ class PrivacyUiTest {
 
     @Test fun swipesNavigateMonthsAndCurrentMonthCannotAdvance() {
         launchBook()
+        // 账务隐藏时编辑与登记按钮是禁用的（刻意设计），因此先显示数据再验证可用性。
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
         compose.onNodeWithContentDescription(context.getString(R.string.next_month)).assertIsNotEnabled()
         compose.runOnIdle { assertEquals(vm.thisMonth, vm.selectedMonth.value) }
         compose.onAllNodesWithContentDescription(context.getString(R.string.current_month)).assertCountEquals(0)
@@ -269,6 +272,19 @@ class PrivacyUiTest {
         compose.runOnIdle { assertEquals(listOf(original), deleted) }
     }
 
+    @Test fun estimateHelpShowsInlineTooltipInsteadOfADialog() {
+        launchBook()
+        compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
+        val help = compose.onNodeWithContentDescription(context.getString(R.string.estimate_hint_title))
+        compose.onNodeWithTag("statement_${vm.thisMonth}").performScrollToNode(hasContentDescription(context.getString(R.string.estimate_hint_title)))
+        // 对话框会占满窗口并阻断交互；气泡只在一小块区域内出现。
+        compose.onAllNodes(isDialog()).assertCountEquals(0)
+        help.performClick()
+        compose.waitForIdle()
+        compose.onAllNodes(isDialog()).assertCountEquals(0)
+        compose.onNodeWithText(context.getString(R.string.estimate_hint)).assertExists()
+    }
+
     @Test fun backgroundMaskRemovesSemanticsAndRestoresEditorWhenAutomaticHideIsOff() {
         launchBook()
         compose.runOnIdle {
@@ -297,7 +313,7 @@ class PrivacyUiTest {
         compose.onNodeWithTag("book_snackbar").assertIsDisplayed()
         compose.onNodeWithContentDescription(context.getString(R.string.privacy_show)).performClick()
         compose.onNodeWithText(context.getString(R.string.register_assets)).assertIsEnabled()
-        capturePreview("gradient-light", includeSystemBars = true)
+        capturePreview("chrome-light", includeSystemBars = true)
         val closeAction = compose.onNodeWithTag("book_snackbar").fetchSemanticsNode()
             .config[SemanticsActions.CustomActions].single { it.label == context.getString(R.string.close) }
         compose.runOnIdle { assertTrue(closeAction.action()) }
@@ -306,14 +322,15 @@ class PrivacyUiTest {
         // 原生提示队列在关闭与下一条之间保留短暂间隔，等待新提示完成布局。
         compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithTag("book_snackbar").isDisplayed() }
         compose.onNodeWithTag("book_snackbar").assertIsDisplayed()
-        capturePreview("gradient-dark", includeSystemBars = true)
+        capturePreview("chrome-dark", includeSystemBars = true)
     }
 
     @Test fun startupAndScreenshotSwitchesSaveWithoutSuccessMessageAndAboutContainsLocalDataInfo() {
         val openedLinks = mutableListOf<String>()
+        // 关于页的检查更新入口只在有更新通道时出现，这里显式打开以便验证它。
         launchBook(uriHandler = object : UriHandler {
             override fun openUri(uri: String) { openedLinks.add(uri) }
-        })
+        }, enableUpdate = true)
         compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
         compose.onNodeWithContentDescription(context.getString(R.string.default_privacy_title)).performScrollTo().performClick()
         compose.runOnIdle { assertFalse(vm.state.value.data.settings.hideOnStartup); assertEquals(null, vm.message.value) }
@@ -715,7 +732,9 @@ class PrivacyUiTest {
                            onDeleteAsset: ((YearMonth) -> Unit)? = null,
                            channels: List<Channel> = listOf(Channel("bank", "隐私银行", true, 0)),
                            incomes: List<Income> = listOf(Income("salary", "隐私收入项目", Money(10000), now)),
-                           uriHandler: UriHandler? = null) {
+                           uriHandler: UriHandler? = null,
+                           /** 开发版默认不提供更新通道；需要验证更新入口时显式打开。 */
+                           enableUpdate: Boolean = false) {
         compose.runOnIdle {
             // 仅测试活动保持亮屏，避免厂商在回归过程中冻结测试进程。
             compose.activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -726,7 +745,9 @@ class PrivacyUiTest {
             val repository = if (onDeleteAsset == null) readOnly else object : BookRepository by readOnly {
                 override suspend fun deleteAsset(month: YearMonth) = onDeleteAsset(month)
             }
-            vm = BookViewModel(repository, clock = Clock.fixed(now, BOOK_ZONE), transfer = if (enableTransfer) BookTransfer(context, repository) else null)
+            vm = BookViewModel(repository, clock = Clock.fixed(now, BOOK_ZONE), transfer = if (enableTransfer) BookTransfer(context, repository) else null,
+            updater = if (enableUpdate) UpdateRepository() else null,
+            currentVersion = if (enableUpdate) AppVersion.parse("2026.10.17.1") else null)
             store.put("privacy", vm)
         }
         compose.setContent {
