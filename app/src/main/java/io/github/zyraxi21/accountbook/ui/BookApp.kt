@@ -172,6 +172,7 @@ fun BookApp(vm: BookViewModel) {
                             onExportCsv = { vm.startExport(ExportFormat.CSV) },
                             onImport = vm::requestImport, onHideOnStartup = vm::setHideOnStartup,
                             onAllowScreenshots = vm::setAllowScreenshots, onUseWanGrouping = vm::setUseWanGrouping,
+                            onDifferenceUsesNet = vm::setDifferenceUsesNet,
                             onAbout = { aboutVisible = true })
                     }
                     if (!modalVisible) BookSnackbarHost(Modifier.align(Alignment.BottomCenter))

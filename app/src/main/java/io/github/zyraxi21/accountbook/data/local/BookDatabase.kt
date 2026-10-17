@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [ChannelEntity::class, MonthlyAssetEntity::class, ChannelBalanceEntity::class,
         IncomeEntity::class, SmsImportReceiptEntity::class, AppSettingsEntity::class, RememberedChannelEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class BookDatabase : RoomDatabase() {
@@ -34,5 +34,16 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
 val MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE app_settings ADD COLUMN useWanGrouping INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+/**
+ * v5 新增「债权」金额与差额口径。
+ * 两列都带默认值，旧账本的每月资产表债权为 0、差额默认按净资产，历史数据无需重写。
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE monthly_assets ADD COLUMN receivableFen INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE app_settings ADD COLUMN differenceUsesNet INTEGER NOT NULL DEFAULT 1")
     }
 }

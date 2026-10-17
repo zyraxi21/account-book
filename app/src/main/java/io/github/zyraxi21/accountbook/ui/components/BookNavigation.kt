@@ -159,7 +159,7 @@ private fun ChromePreview(darkTheme: Boolean) {
         Column(Modifier.fillMaxSize().background(LocalBookPalette.current.background)) {
             BookTopBar(hidden = true, onPrivacyClick = {})
             Column(Modifier.weight(1f).padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                SectionHeading(stringResource(R.string.statement_title), stringResource(R.string.statement_subtitle))
+                SectionHeading(stringResource(R.string.statement_title))
                 LedgerCard { BookText(stringResource(R.string.privacy_hint)) }
             }
             BookBottomBar(selectedIndex = 0, onSelect = {})

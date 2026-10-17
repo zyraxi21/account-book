@@ -1,6 +1,7 @@
 package io.github.zyraxi21.accountbook
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import io.github.zyraxi21.accountbook.data.local.EncryptedDatabaseFactory
 import io.github.zyraxi21.accountbook.data.repository.EncryptedBookRepository
@@ -23,8 +24,14 @@ class AppContainer(application: Application) {
     )
     val smsParser = IcbcSmsParser()
     val transfer = BookTransfer(application, repository)
-    val updater = UpdateRepository()
-    val downloader = ApkDownloader(application)
+
+    /**
+     * 开发版使用独立的 applicationId，从 GitHub 下载的更新包属于 release 版。
+     * 在开发版里安装它只会多装一个应用，因此在可调试构建中直接关闭更新通道。
+     */
+    private val isDebuggable = application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    val updater: UpdateRepository? = if (isDebuggable) null else UpdateRepository()
+    val downloader: ApkDownloader? = if (isDebuggable) null else ApkDownloader(application)
 
     /**
      * 当前版本号从安装包信息读取，其来源是构建配置的 `versionName`，不在代码中硬编码。

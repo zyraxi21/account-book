@@ -165,7 +165,7 @@ private fun AboutContent(onClose: () -> Unit, updateState: UpdateUiState, vm: Bo
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            UpdateButton(updateState, vm)
+            if (vm.updateAvailable) UpdateButton(updateState, vm)
             BookSnackbarHost()
         }
     }
@@ -248,6 +248,7 @@ private object PreviewBookRepository : BookRepository {
     override suspend fun setHideOnStartup(enabled: Boolean) = Unit
     override suspend fun setAllowScreenshots(enabled: Boolean) = Unit
     override suspend fun setUseWanGrouping(enabled: Boolean) = Unit
+    override suspend fun setDifferenceUsesNet(enabled: Boolean) = Unit
     override suspend fun importSms(parsed: ParsedIcbcIncome, requireAutoEnabled: Boolean) = false
     override suspend fun recordExport(exportedAt: Instant) = Unit
     override suspend fun importBook(data: BookData, mode: ImportMode) = BookImportResult(mode, 0, 0, 0)

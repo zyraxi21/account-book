@@ -53,14 +53,15 @@ internal fun bookPalette(tokens: AliasTokens, darkTheme: Boolean): BookPalette {
         topBar = accent,
         onTopBar = tokens.neutralForegroundColor[FluentAliasTokens.NeutralForegroundColorTokens.ForegroundOnColor].resolve(),
         // 只提亮品牌填充色少许，保持色相一致，避免跨色阶形成明显色带。
-        gradientStart = lerp(accent, Color.White, 0.04f),
-        gradientEnd = accent,
+        // 幅度不超过 0.05：再亮会让白字在默认品牌蓝上的对比度低于 4.5:1。
+        gradientEnd = lerp(accent, Color.White, 0.05f),
+        gradientStart = accent,
         snackbarSurface = tokens.brandBackgroundColor[FluentAliasTokens.BrandBackgroundColorTokens.BrandBackgroundTint].resolve(),
         onSnackbar = tokens.brandForegroundColor[FluentAliasTokens.BrandForegroundColorTokens.BrandForegroundTint].resolve(),
     )
 }
 
-/** 顶栏、填充按钮和 FAB 共用由略亮品牌色向原色过渡的垂直渐变，按压时整体加深。 */
+/** 顶栏、填充按钮和 FAB 共用由品牌原色向略亮色渐变的垂直渐变，按压时整体加深。 */
 internal fun BookPalette.accentColors(pressed: Boolean = false): List<Color> {
     val shade = if (pressed) 0.12f else 0f
     return listOf(lerp(gradientStart, Color.Black, shade), lerp(gradientEnd, Color.Black, shade))

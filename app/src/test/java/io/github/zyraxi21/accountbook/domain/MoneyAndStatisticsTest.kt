@@ -45,11 +45,25 @@ class MoneyAndStatisticsTest {
             income("december", "2000", "2025-12-31T23:59:59"),
         ))
         val summary = data.summary(YearMonth.of(2026, 1))
-        assertEquals(Money.parse("500"), summary.assetDifference)
+        // 默认按净资产对比：净资产分别是 9000 与 10000。
+        assertEquals(Money.parse("1000"), summary.assetDifference)
+        // 切到总资产口径后，差额是总资产之差 10500 − 10000。
+        val byTotal = data.copy(settings = data.settings.copy(differenceUsesNet = false))
+        assertEquals(Money.parse("500"), byTotal.summary(YearMonth.of(2026, 1)).assetDifference)
+        // 估算月支出固定按净资产推算，不受该设置影响。
         assertEquals(Money.parse("500"), summary.estimatedExpense)
         assertEquals(Money.parse("1500"), summary.monthlyIncome)
         assertEquals(Money.parse("3500"), data.cumulativeIncome)
         assertEquals(Money.parse("10000"), january.net)
+    }
+
+    @Test fun receivableCountsTowardsTotalAssetsAndNetWorth() {
+        val snapshot = MonthlyAssetSnapshot(
+            LocalDateTime.parse("2026-01-31T12:00:00").atZone(BOOK_ZONE).toInstant(),
+            listOf(ChannelBalance("bank", "银行", Money.parse("100"))), Money.parse("30"), Money.parse("20"))
+        assertEquals(Money.parse("100"), snapshot.channelTotal)
+        assertEquals(Money.parse("120"), snapshot.total)
+        assertEquals(Money.parse("90"), snapshot.net)
     }
 
     @Test fun missingAdjacentMonthDoesNotCompareAcrossAGap() {

@@ -79,7 +79,7 @@ fun AssetsScreen(data: BookData, month: YearMonth, hidden: Boolean, busy: Boolea
             // 静止区自行保留与滚动区的间距，列表不再自带顶部内边距，滚动时内容不会贴到月份行。
             Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 20.dp).testTag("month_header"),
                 verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                SectionHeading(stringResource(R.string.statement_title), stringResource(R.string.statement_subtitle))
+                SectionHeading(stringResource(R.string.statement_title))
                 MonthNavigation(displayedMonth,
                     onPrevious = { navigateTo((request?.page ?: pager.currentPage) - 1) },
                     onNext = { navigateTo((request?.page ?: pager.currentPage) + 1) },
@@ -109,6 +109,12 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
     val palette = LocalBookPalette.current
     val result = remember(data, month) { runCatching { data.summary(month) } }
     val snapshot = data.snapshot(month)
+    var estimateHintVisible by remember { mutableStateOf(false) }
+    if (estimateHintVisible) {
+        HintDialog(stringResource(R.string.estimated_expense), stringResource(R.string.estimate_hint)) {
+            estimateHintVisible = false
+        }
+    }
     LazyColumn(Modifier.fillMaxSize().testTag("statement_$month"), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 0.dp, bottom = if (month != currentMonth) 104.dp else 20.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             item {
@@ -117,12 +123,12 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
                         SectionHeading(stringResource(R.string.no_assets_title), stringResource(R.string.no_assets_hint))
                     } else {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            BookText(stringResource(R.string.month_short_format, month.year, month.monthValue),
-                                Modifier.weight(1f), size = 14.sp, color = palette.brand)
+                            // 卡片左上角展示最后一次登记的完整时间，替代原先无信息量的月份数字。
+                            PrivateText(formatDateTime(snapshot.registeredAt), hidden, Modifier.weight(1f), 13.sp, color = palette.secondary)
                             BookIconButton(R.drawable.ic_channel_edit, R.string.edit_assets, onRegister,
                                 Modifier.testTag("register_assets_$month"), enabled = !busy && !hidden)
                             BookIconButton(R.drawable.ic_channel_delete, R.string.delete, onDelete,
-                                Modifier.testTag("delete_assets_$month"), enabled = !busy && !hidden, destructive = true)
+                                Modifier.testTag("delete_assets_$month"), enabled = !busy && !hidden)
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             BookText(stringResource(R.string.asset_channel), size = 13.sp, color = palette.secondary)
@@ -136,10 +142,11 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
                             }
                         }
                         LedgerDivider()
+                        // 债权不落在具体渠道里，单独列在渠道合计与总资产之间。
+                        SummaryRow(stringResource(R.string.receivable), snapshot.receivable, hidden)
                         SummaryRow(stringResource(R.string.total_assets), snapshot.total, hidden)
                         SummaryRow(stringResource(R.string.liability), snapshot.liability, hidden)
                         SummaryRow(stringResource(R.string.net_assets), snapshot.net, hidden, emphasis = true)
-                        PrivateText(formatDateTime(snapshot.registeredAt), hidden, size = 12.sp, color = palette.secondary)
                     }
                     LedgerDivider()
                     val summary = result.getOrNull()
@@ -147,8 +154,9 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
                     else {
                         SummaryRow(stringResource(R.string.monthly_income), summary.monthlyIncome, hidden)
                         SummaryRow(stringResource(R.string.asset_difference), summary.assetDifference, hidden, signed = true)
-                        SummaryRow(stringResource(R.string.estimated_expense), summary.estimatedExpense, hidden)
-                        BookText(stringResource(R.string.estimate_hint), size = 12.sp, color = palette.secondary)
+                        // 公式收进问号图标，正文只留结论。
+                        SummaryRow(stringResource(R.string.estimated_expense), summary.estimatedExpense, hidden,
+                            trailing = { HelpIcon { estimateHintVisible = true } })
                     }
                 }
             }
@@ -160,7 +168,8 @@ private fun MonthlyStatement(data: BookData, month: YearMonth, currentMonth: Yea
 }
 
 @Composable
-private fun SummaryRow(label: String, money: Money?, hidden: Boolean, emphasis: Boolean = false, signed: Boolean = false) {
+private fun SummaryRow(label: String, money: Money?, hidden: Boolean, emphasis: Boolean = false, signed: Boolean = false,
+                       trailing: (@Composable () -> Unit)? = null) {
     val palette = LocalBookPalette.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         BookText(label, Modifier.weight(1f), if (emphasis) 18.sp else 14.sp,
@@ -173,7 +182,14 @@ private fun SummaryRow(label: String, money: Money?, hidden: Boolean, emphasis: 
             signed && money.fen < 0 -> palette.negative
             else -> palette.foreground
         })
+        trailing?.invoke()
     }
+}
+
+/** 紧跟结论的问号图标，点开查看计算口径。保留 48dp 触摸区。 */
+@Composable
+private fun HelpIcon(onClick: () -> Unit) {
+    BookIconButton(R.drawable.ic_help, R.string.estimate_hint_title, onClick)
 }
 
 @Composable
@@ -197,6 +213,7 @@ fun AssetEditor(draft: AssetDraft, vm: BookViewModel, busy: Boolean, onAdd: () -
                 modifier = Modifier.testTag("channel_amount_${balance.channelId}"))
         }
         LedgerDivider()
+        AmountField(draft.receivable, vm::updateReceivable, stringResource(R.string.receivable_amount))
         AmountField(draft.liability, vm::updateLiability, stringResource(R.string.liability_amount))
     }
 }

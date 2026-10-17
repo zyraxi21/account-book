@@ -22,6 +22,8 @@ interface BookRepository {
     suspend fun setHideOnStartup(enabled: Boolean)
     suspend fun setAllowScreenshots(enabled: Boolean)
     suspend fun setUseWanGrouping(enabled: Boolean)
+    /** 切换与上月差额的计算口径：`true` 按净资产，`false` 按总资产。 */
+    suspend fun setDifferenceUsesNet(enabled: Boolean)
     suspend fun importSms(parsed: ParsedIcbcIncome, requireAutoEnabled: Boolean = true): Boolean
 
     /** 记录一次成功导出的时间。 */

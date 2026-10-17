@@ -21,6 +21,8 @@ data class MonthlyAssetEntity(
     @PrimaryKey val month: String,
     val registeredAtMillis: Long,
     val liabilityFen: Long,
+    /** 债权金额；v5 新增，旧账本迁移后为 0。 */
+    @ColumnInfo(defaultValue = "0") val receivableFen: Long = 0,
 )
 
 @Entity(
@@ -67,6 +69,8 @@ data class AppSettingsEntity(
     @ColumnInfo(defaultValue = "1") val hideOnStartup: Boolean = true,
     @ColumnInfo(defaultValue = "0") val allowScreenshots: Boolean = false,
     @ColumnInfo(defaultValue = "0") val useWanGrouping: Boolean = false,
+    /** 与上月差额的口径：1 表示按净资产，0 表示按总资产。 */
+    @ColumnInfo(defaultValue = "1") val differenceUsesNet: Boolean = true,
 )
 
 @Entity(

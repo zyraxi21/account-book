@@ -217,6 +217,33 @@ class BookSerializationTest {
         assertError(BookError.IMPORT_LIMIT_EXCEEDED) { BookDecoder().fromJson(baseJson(channels = "[$channels]")) }
     }
 
+    @Test fun backupsWithoutReceivableFieldStillImportAsZero() {
+        // 旧版导出的 JSON 没有 "receivable"，应静默按 0 导入而不是报缺少字段。
+        val legacyJson = baseJson(
+            snapshots = """[{"month":"2026-10","registeredAt":"2026-10-01T00:00:00Z","liability":"10","balances":[{"channelId":"a","channelName":"银行","amount":"100"}]}]""",
+        )
+        val fromJson = BookDecoder().fromJson(legacyJson).snapshots.single()
+        assertEquals(Money.ZERO, fromJson.receivable)
+        assertEquals(Money.parse("100"), fromJson.total)
+        assertEquals(Money.parse("90"), fromJson.net)
+
+        // 旧版导出的 CSV 只有 6 列，债权列缺失时同样按 0 处理。
+        val legacyCsv = "月份,登记时间,渠道ID,渠道名称,余额,负债\r\n" +
+            "2026-10,2026-10-01T00:00:00Z,a,银行,100,10\r\n"
+        val fromCsv = BookDecoder().fromAssetsCsv(legacyCsv).snapshots.single()
+        assertEquals(Money.ZERO, fromCsv.receivable)
+        assertEquals(Money.parse("90"), fromCsv.net)
+    }
+
+    @Test fun receivableSurvivesJsonAndCsvRoundTrip() {
+        val withReceivable = sample.copy(snapshots = sample.snapshots.map { it.copy(receivable = Money.parse("250.75")) })
+        val viaJson = BookDecoder().fromJson(BookExporter.toJson(withReceivable, exportedAt))
+        val viaCsv = BookDecoder().fromCsv(BookExporter.toCsv(withReceivable))
+        for (restored in listOf(viaJson, viaCsv)) {
+            assertEquals(Money.parse("250.75"), restored.snapshots.first().receivable)
+        }
+    }
+
     private fun jsonWithBalance(overridden: String) = baseJson(
         snapshots = """[{"month":"2026-10","registeredAt":"2026-10-01T00:00:00Z","liability":"0","balances":[{"channelId":"a","channelName":"甲",$overridden}]}]""",
     )

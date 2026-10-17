@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import io.github.zyraxi21.accountbook.R
@@ -109,7 +108,6 @@ class ApkDownloader(private val context: Context) {
 
     /** 是否已允许本应用请求安装未知来源应用。 */
     private fun canInstall(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
         val packageName = context.packageName
         // 读取自身是否被允许安装未知来源应用的设置。
         return runCatching {
@@ -123,7 +121,6 @@ class ApkDownloader(private val context: Context) {
 
     /** 打开未知来源安装的授权页；返回是否成功拉起。 */
     fun openInstallPermissionSettings(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
         // 部分厂商 ROM 不实现按包跳转的设置页，逐级回退到全局设置与安全页。
         val candidates = listOf(
             Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")),

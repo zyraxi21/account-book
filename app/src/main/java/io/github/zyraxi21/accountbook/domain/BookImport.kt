@@ -14,7 +14,7 @@ fun prepareBookImport(existing: BookData, incoming: BookData, mode: ImportMode):
     val knownIds = incoming.channels.map { it.id }.toSet() +
         if (mode == ImportMode.MERGE) existing.channels.map { it.id }.toSet() else emptySet()
     incoming.snapshots.forEach { snapshot ->
-        if (snapshot.balances.isEmpty() || snapshot.liability.fen < 0 ||
+        if (snapshot.balances.isEmpty() || snapshot.liability.fen < 0 || snapshot.receivable.fen < 0 ||
             snapshot.balances.any { it.channelId !in knownIds || it.channelName.isBlank() || it.amount.fen < 0 } ||
             snapshot.balances.map { it.channelId }.distinct().size != snapshot.balances.size) {
             throw BookException(BookError.IMPORT_INVALID_FIELD)

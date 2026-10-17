@@ -88,7 +88,7 @@ fun IncomeScreen(data: BookData, month: YearMonth, currentMonth: YearMonth, hidd
             // 静止区自行保留与滚动区的间距，列表不再自带顶部内边距。
             Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                SectionHeading(stringResource(R.string.income_title), stringResource(R.string.income_subtitle))
+                SectionHeading(stringResource(R.string.income_title))
                 MonthNavigation(displayedMonth,
                     onPrevious = { navigateTo((request?.page ?: pager.currentPage) - 1) },
                     onNext = { navigateTo((request?.page ?: pager.currentPage) + 1) },
@@ -128,7 +128,6 @@ private fun MonthlyIncome(data: BookData, month: YearMonth, currentMonth: YearMo
             LedgerDivider()
             BookText(stringResource(R.string.cumulative_income), size = 14.sp, color = palette.secondary)
             MoneyText(cumulativeIncome, hidden, Modifier.testTag("cumulative_income_$month"))
-            BookText(stringResource(R.string.income_cumulative_hint), size = 12.sp, color = palette.secondary)
         } }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -147,7 +146,7 @@ private fun MonthlyIncome(data: BookData, month: YearMonth, currentMonth: YearMo
                     BookIconButton(R.drawable.ic_channel_edit, R.string.edit_income, { onEdit(income) },
                         Modifier.testTag("edit_income_${income.id}"), enabled = !busy && !hidden)
                     BookIconButton(R.drawable.ic_channel_delete, R.string.delete, { onDelete(income) },
-                        Modifier.testTag("delete_income_${income.id}"), enabled = !busy && !hidden, destructive = true)
+                        Modifier.testTag("delete_income_${income.id}"), enabled = !busy && !hidden)
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PrivateText(formatDateTime(income.receivedAt), hidden, Modifier.weight(1f), 12.sp, color = palette.secondary)

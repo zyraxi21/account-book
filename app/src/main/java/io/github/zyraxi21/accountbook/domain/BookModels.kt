@@ -25,9 +25,17 @@ data class MonthlyAssetSnapshot(
     val registeredAt: Instant,
     val balances: List<ChannelBalance>,
     val liability: Money,
+    /** 债权：借出或应收、尚未回到渠道余额中的钱。旧版数据与旧备份按 0 处理。 */
+    val receivable: Money = Money.ZERO,
 ) {
     val month: YearMonth get() = YearMonth.from(registeredAt.atZone(BOOK_ZONE))
-    val total: Money get() = Money.sum(balances.map { it.amount })
+
+    /** 各渠道余额合计，不含债权。 */
+    val channelTotal: Money get() = Money.sum(balances.map { it.amount })
+
+    /** 总资产 = 渠道余额 + 债权。 */
+    val total: Money get() = channelTotal + receivable
+
     val net: Money get() = total - liability
 }
 
@@ -49,6 +57,8 @@ data class BookSettings(
     val allowScreenshots: Boolean = false,
     /** 默认每三位分隔，开启后按中文习惯每四位分隔。 */
     val useWanGrouping: Boolean = false,
+    /** 与上月差额的口径：`true` 按净资产计算，`false` 按总资产计算。 */
+    val differenceUsesNet: Boolean = true,
 )
 data class BookData(
     val channels: List<Channel> = emptyList(),
@@ -77,9 +87,12 @@ data class BookData(
         val current = snapshot(month)
         val previous = snapshot(month.minusMonths(1))
         val income = incomeIn(month)
+        // 差额口径由设置决定；前两个月任一缺失时无从比较，保持为空。
+        val difference = if (current != null && previous != null) {
+            if (settings.differenceUsesNet) current.net - previous.net else current.total - previous.total
+        } else null
         return MonthlySummary(
-            current, income,
-            if (current != null && previous != null) current.total - previous.total else null,
+            current, income, difference,
             if (current != null && previous != null) previous.net + income - current.net else null,
         )
     }

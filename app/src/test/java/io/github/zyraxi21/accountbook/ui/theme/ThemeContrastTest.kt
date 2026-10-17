@@ -75,13 +75,14 @@ class ThemeContrastTest {
     @Test fun gradientButtonsKeepReadableTextAcrossTheGradientAndPressedState() {
         for (seed in seeds + listOf<Int?>(null)) for (dark in listOf(false, true)) {
             val palette = bookPalette(BookAliasTokens(seed, dark), dark)
-            assertEquals("渐变末端保留原品牌填充色", palette.topBar, palette.gradientEnd)
-            assertTrue("渐变起点应略亮于品牌色", relativeLuminance(palette.gradientStart) > relativeLuminance(palette.gradientEnd))
+            // 渐变由品牌原色过渡到略亮的末端：起点保持原品牌填充色，与顶栏一致。
+            assertEquals("渐变起点保留原品牌填充色", palette.topBar, palette.gradientStart)
+            assertTrue("渐变末端应略亮于品牌色", relativeLuminance(palette.gradientEnd) > relativeLuminance(palette.gradientStart))
             for (pressed in listOf(false, true)) {
                 val colors = palette.accentColors(pressed)
                 for (fraction in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {
                     val background = lerp(colors.first(), colors.last(), fraction)
-                    assertContrast(palette.onTopBar, background)
+                    assertContrast(palette.onTopBar, background, "seed=$seed dark=$dark pressed=$pressed fraction=$fraction")
                     if (dark) assertTrue("深色渐变不应过亮", relativeLuminance(background) < 0.15)
                 }
             }
@@ -103,10 +104,11 @@ class ThemeContrastTest {
         assertContrast(palette.onTopBar, palette.topBar)
     }
 
-    private fun assertContrast(foreground: Color, background: Color) {
+    private fun assertContrast(foreground: Color, background: Color, context: String? = null) {
         val first = relativeLuminance(foreground)
         val second = relativeLuminance(background)
         val ratio = (max(first, second) + 0.05) / (min(first, second) + 0.05)
-        assertTrue("正文和系统栏图标的对比度应至少为 4.5:1，实际为 $ratio", ratio >= 4.5)
+        val where = if (context == null) "" else "（$context）"
+        assertTrue("正文和系统栏图标的对比度应至少为 4.5:1，实际为 $ratio$where", ratio >= 4.5)
     }
 }

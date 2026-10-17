@@ -23,6 +23,7 @@ internal enum class BookField(val label: String) {
     MONTH("month"),
     REGISTERED_AT("registeredAt"),
     LIABILITY("liability"),
+    RECEIVABLE("receivable"),
     CHANNEL_ID("channelId"),
     CHANNEL_NAME("channelName"),
     AMOUNT("amount"),
@@ -178,6 +179,7 @@ internal class CsvLayout(header: CsvRow) {
         BookField.CHANNEL_NAME -> listOf("渠道名称", "channelName")
         BookField.AMOUNT -> listOf("余额", "金额", "amount")
         BookField.LIABILITY -> listOf("负债", "liability")
+        BookField.RECEIVABLE -> listOf("债权", "receivable")
         BookField.NAME -> listOf("渠道名称", "名称", "name")
         BookField.ACTIVE -> listOf("启用", "active")
         BookField.POSITION -> listOf("顺序", "position")
@@ -194,8 +196,12 @@ internal class CsvLayout(header: CsvRow) {
 // ---------------------------------------------------------------------------
 
 object BookExporter {
+    /**
+     * 「债权」是追加的可选字段，缺失时按 0 导入，因此不提升版本号：
+     * 提升会让旧版应用直接拒绝读取新备份，而保持版本只会让旧版忽略这一项。
+     */
     const val FORMAT_VERSION = 1
-    const val ASSET_HEADER = "月份,登记时间,渠道ID,渠道名称,余额,负债"
+    const val ASSET_HEADER = "月份,登记时间,渠道ID,渠道名称,余额,负债,债权"
     const val CHANNEL_HEADER = "渠道ID,渠道名称,启用,顺序"
     const val INCOME_HEADER = "收入ID,项目,金额,日期时间,来源"
 
@@ -216,7 +222,8 @@ object BookExporter {
         append("  \"snapshots\": [\n")
         data.snapshots.forEachIndexed { index, snapshot ->
             append("    {\"month\": \"${snapshot.month}\", \"registeredAt\": \"${snapshot.registeredAt}\", ")
-            append("\"liability\": ${quote(snapshot.liability.inputText())}, \"balances\": [")
+            append("\"liability\": ${quote(snapshot.liability.inputText())}, ")
+            append("\"receivable\": ${quote(snapshot.receivable.inputText())}, \"balances\": [")
             append(snapshot.balances.joinToString(", ") { balance ->
                 "{\"channelId\": ${quote(balance.channelId)}, \"channelName\": ${quote(balance.channelName)}, " +
                     "\"amount\": ${quote(balance.amount.inputText())}}"
@@ -246,6 +253,7 @@ object BookExporter {
                     balance.channelName,
                     balance.amount.inputText(),
                     snapshot.liability.inputText(),
+                    snapshot.receivable.inputText(),
                 )
             }
         },
@@ -320,6 +328,10 @@ class BookDecoder(private val random: () -> String = { UUID.randomUUID().toStrin
             val registeredAt = decodeInstant(BookField.REGISTERED_AT, row, text(record[BookField.REGISTERED_AT.label], BookField.REGISTERED_AT, row))
             val month = decodeMonth(row, text(record[BookField.MONTH.label], BookField.MONTH, row), registeredAt)
             val liability = decodeMoney(BookField.LIABILITY, row, amount(record[BookField.LIABILITY.label], BookField.LIABILITY, row))
+            // 「债权」是后续版本新增的可选字段，旧备份没有时按 0 处理，保证旧文件仍能导入。
+            val receivable = record[BookField.RECEIVABLE.label]?.let {
+                decodeMoney(BookField.RECEIVABLE, row, amount(it, BookField.RECEIVABLE, row))
+            } ?: Money.ZERO
             val balances = list(record[BookField.BALANCES.label], BookField.BALANCES, row)
             if (balances.isEmpty()) fieldError(BookField.BALANCES, row, "至少需要一个渠道余额")
             val decodedBalances = balances.map { item ->
@@ -333,7 +345,7 @@ class BookDecoder(private val random: () -> String = { UUID.randomUUID().toStrin
             if (decodedBalances.map { it.channelId }.distinct().size != decodedBalances.size) {
                 fieldError(BookField.CHANNEL_ID, row, "同一月份内渠道 ID 重复")
             }
-            val snapshot = MonthlyAssetSnapshot(registeredAt, decodedBalances, liability)
+            val snapshot = MonthlyAssetSnapshot(registeredAt, decodedBalances, liability, receivable)
             snapshot.total
             snapshot
         }
@@ -431,7 +443,8 @@ class BookDecoder(private val random: () -> String = { UUID.randomUUID().toStrin
             }
             BookSections.ASSETS -> {
                 val grouped = LinkedHashMap<YearMonth, Pair<Instant, MutableList<ChannelBalance>>>()
-                val liabilities = HashMap<YearMonth, Money>()
+                // 每月只允许一份资产表，这里记录该月共用的负债与债权。
+                val sharedTotals = HashMap<YearMonth, Pair<Money, Money>>()
                 content.forEach { row ->
                     val monthText = row.required(layout.indexOf(BookField.MONTH, 0), BookField.MONTH)
                     val registeredAt = decodeInstant(BookField.REGISTERED_AT, row.line,
@@ -445,11 +458,15 @@ class BookDecoder(private val random: () -> String = { UUID.randomUUID().toStrin
                     )
                     val liability = decodeMoney(BookField.LIABILITY, row.line,
                         row.required(layout.indexOf(BookField.LIABILITY, 5), BookField.LIABILITY))
+                    // 「债权」列是后续版本新增的，旧表格没有该列时按 0 处理，不影响导入。
+                    val receivable = row.optional(layout.indexOf(BookField.RECEIVABLE, 6)).takeIf { it.isNotEmpty() }
+                        ?.let { decodeMoney(BookField.RECEIVABLE, row.line, it) } ?: Money.ZERO
                     // 同一月份的所有行必须来自同一次登记，否则无法还原一份资产表。
-                    liabilities[month]?.let { existing ->
-                        if (existing != liability) fieldError(BookField.LIABILITY, row.line, "同一月份的负债不一致")
+                    sharedTotals[month]?.let { (knownLiability, knownReceivable) ->
+                        if (knownLiability != liability) fieldError(BookField.LIABILITY, row.line, "同一月份的负债不一致")
+                        if (knownReceivable != receivable) fieldError(BookField.RECEIVABLE, row.line, "同一月份的债权不一致")
                     }
-                    liabilities[month] = liability
+                    sharedTotals[month] = liability to receivable
                     grouped.getOrPut(month) { registeredAt to mutableListOf() }.let { entry ->
                         if (entry.first != registeredAt) fieldError(BookField.REGISTERED_AT, row.line, "同一月份的登记时间不一致")
                         entry.second.add(balance)
@@ -459,7 +476,8 @@ class BookDecoder(private val random: () -> String = { UUID.randomUUID().toStrin
                     if (value.second.map { it.channelId }.distinct().size != value.second.size) {
                         fieldError(BookField.CHANNEL_ID, null, "月份 $month 内渠道 ID 重复")
                     }
-                    MonthlyAssetSnapshot(value.first, value.second, liabilities.getValue(month))
+                    val (liability, receivable) = sharedTotals.getValue(month)
+                    MonthlyAssetSnapshot(value.first, value.second, liability, receivable)
                 }
                 snapshots.forEach { it.total }
                 return BookData(snapshots = snapshots)

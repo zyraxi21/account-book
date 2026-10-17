@@ -17,8 +17,8 @@ android {
         applicationId = "io.github.zyraxi21.accountbook"
         minSdk = 34
         targetSdk = 37
-        versionCode = 202610081
-        versionName = "2026.10.08.1"
+        versionCode = 202610171
+        versionName = "2026.10.17.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -54,6 +54,12 @@ android {
     }
 
     buildTypes {
+        // 开发版用独立的 applicationId，因此可以和签名的 release 版共存：
+        // 签名不冲突，各自拥有独立的私有目录（账本、密钥、偏好完全隔离）。
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-dev"
+        }
         release {
             // 发布签名来自 keystore.properties，不用 debug 签名——
             // 后者口令公开，等同于任何人都能伪造同签名 APK。

@@ -34,6 +34,7 @@ class ReadOnlyBookRepository(initial: BookData) : BookRepository {
     override suspend fun setHideOnStartup(enabled: Boolean) { data.value = data.value.copy(settings = data.value.settings.copy(hideOnStartup = enabled)) }
     override suspend fun setAllowScreenshots(enabled: Boolean) { data.value = data.value.copy(settings = data.value.settings.copy(allowScreenshots = enabled)) }
     override suspend fun setUseWanGrouping(enabled: Boolean) { data.value = data.value.copy(settings = data.value.settings.copy(useWanGrouping = enabled)) }
+    override suspend fun setDifferenceUsesNet(enabled: Boolean) { data.value = data.value.copy(settings = data.value.settings.copy(differenceUsesNet = enabled)) }
     override suspend fun importSms(parsed: ParsedIcbcIncome, requireAutoEnabled: Boolean): Boolean = unsupported()
     override suspend fun recordExport(exportedAt: Instant): Unit = unsupported()
     override suspend fun importBook(data: BookData, mode: ImportMode): BookImportResult = unsupported()

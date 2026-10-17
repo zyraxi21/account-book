@@ -33,9 +33,13 @@ import androidx.compose.ui.window.SecureFlagPolicy
 import com.microsoft.fluentui.datetimepicker.DateTimePickerDialog
 import com.microsoft.fluentui.theme.FluentTheme
 import com.microsoft.fluentui.theme.ThemeMode
+import com.microsoft.fluentui.theme.token.StateBrush
+import com.microsoft.fluentui.theme.token.StateColor
 import com.microsoft.fluentui.theme.token.controlTokens.BasicCardInfo
 import com.microsoft.fluentui.theme.token.controlTokens.BasicCardTokens
+import com.microsoft.fluentui.theme.token.controlTokens.ButtonInfo
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
+import com.microsoft.fluentui.theme.token.controlTokens.ButtonTokens
 import com.microsoft.fluentui.theme.token.controlTokens.CardType
 import com.microsoft.fluentui.tokenized.controls.BasicCard
 import com.microsoft.fluentui.tokenized.controls.Button
@@ -165,11 +169,35 @@ fun bookDialogMaxHeight(): Dp = with(LocalDensity.current) {
     (LocalWindowInfo.current.containerSize.height.toDp() - 72.dp).coerceAtLeast(200.dp)
 }
 
+/** 删除确认等不可逆操作使用红色主按钮；文字色取背景色，浅色与深色主题下都保持对比度。 */
+private object DestructiveButtonTokens : ButtonTokens() {
+    @Composable override fun backgroundBrush(buttonInfo: ButtonInfo): StateBrush {
+        val palette = LocalBookPalette.current
+        return StateBrush(
+            rest = SolidColor(palette.negative),
+            pressed = SolidColor(palette.negative.copy(alpha = 0.85f)),
+            selected = SolidColor(palette.negative),
+            focused = SolidColor(palette.negative),
+            disabled = super.backgroundBrush(buttonInfo).disabled,
+        )
+    }
+
+    @Composable override fun textColor(buttonInfo: ButtonInfo): StateColor {
+        val palette = LocalBookPalette.current
+        return StateColor(
+            rest = palette.background, pressed = palette.background, focused = palette.background,
+            selected = palette.background, disabled = palette.secondary.copy(alpha = 0.38f),
+        )
+    }
+}
+
 @Composable
 fun EditorDialog(title: String, busy: Boolean, onClose: () -> Unit, saveLabel: String, onSave: () -> Unit,
                  /** 弹窗内是否自带提示宿主。外层已有宿主时应传 false，否则同一条提示会显示两次。 */
                  snackbarHost: Boolean = true,
                  saveEnabled: Boolean = true, cancelLabel: String? = null,
+                 /** 主按钮是否使用红色，仅用于删除等不可逆操作。 */
+                 destructive: Boolean = false,
                  content: @Composable ColumnScope.() -> Unit) {
     val maxHeight = bookDialogMaxHeight()
     val maxWidth = bookDialogMaxWidth()
@@ -186,7 +214,8 @@ fun EditorDialog(title: String, busy: Boolean, onClose: () -> Unit, saveLabel: S
                     Button(onClick = onClose, modifier = Modifier.weight(1f).heightIn(min = 48.dp), style = ButtonStyle.OutlinedButton,
                         text = cancelLabel ?: stringResource(R.string.cancel), enabled = !busy)
                     Button(onClick = onSave, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                        text = if (busy) stringResource(R.string.saving) else saveLabel, enabled = !busy && saveEnabled)
+                        text = if (busy) stringResource(R.string.saving) else saveLabel, enabled = !busy && saveEnabled,
+                        buttonTokens = if (destructive) DestructiveButtonTokens else null)
                 }
                 if (snackbarHost) BookSnackbarHost()
             }
@@ -196,5 +225,22 @@ fun EditorDialog(title: String, busy: Boolean, onClose: () -> Unit, saveLabel: S
 
 @Composable
 fun ConfirmDialog(title: String, hint: String, busy: Boolean, onClose: () -> Unit, onConfirm: () -> Unit) {
-    EditorDialog(title, busy, onClose, stringResource(R.string.delete), onConfirm) { BookText(hint) }
+    // 删除不可撤销，主按钮用红色与普通保存区分。
+    EditorDialog(title, busy, onClose, stringResource(R.string.delete), onConfirm, destructive = true) { BookText(hint) }
+}
+
+/** 轻量说明弹窗，用于把公式这类细节从正文里收起。 */
+@Composable
+fun HintDialog(title: String, text: String, onDismiss: () -> Unit) {
+    val maxWidth = bookDialogMaxWidth()
+    Dialog(onDismiss = onDismiss, dialogProperties = DialogProperties(dismissOnBackPress = true,
+        dismissOnClickOutside = true, securePolicy = SecureFlagPolicy.Inherit, usePlatformDefaultWidth = false)) {
+        Column(Modifier.widthIn(max = maxWidth).fillMaxWidth().padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            BookText(title, size = 20.sp, weight = FontWeight.SemiBold)
+            BookText(text)
+            Button(onClick = onDismiss, text = stringResource(R.string.got_it),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
+        }
+    }
 }

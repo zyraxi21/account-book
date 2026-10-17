@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      开发版与 release 版装在同一台设备上，桌面图标名称需要能一眼区分。
+      只覆盖桌面标签，应用内的标题与“关于”页仍使用 app_name。
+    -->
+    <string name="app_launcher_label">记账本 开发版</string>
+</resources>

@@ -1,9 +1,14 @@
 package io.github.zyraxi21.accountbook.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -34,19 +39,18 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
                    onSmsChange: (Boolean) -> Unit, onPermissionSettings: () -> Unit,
                    onExportJson: () -> Unit, onExportCsv: () -> Unit, onImport: () -> Unit,
                    onHideOnStartup: (Boolean) -> Unit, onAllowScreenshots: (Boolean) -> Unit,
-                   onUseWanGrouping: (Boolean) -> Unit, onAbout: () -> Unit) {
+                   onUseWanGrouping: (Boolean) -> Unit, onDifferenceUsesNet: (Boolean) -> Unit, onAbout: () -> Unit) {
     val palette = LocalBookPalette.current
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { SectionHeading(stringResource(R.string.tab_settings)) }
         item { LedgerCard {
             SettingToggle(stringResource(R.string.sms_auto_import), stringResource(R.string.sms_auto_hint),
                 data.settings.smsAutoImportEnabled && smsPermission, !busy, onSmsChange)
-            BookText(stringResource(when {
-                !smsPermission -> R.string.sms_unavailable
-                data.settings.smsAutoImportEnabled -> R.string.sms_enabled
-                else -> R.string.sms_disabled
-            }), size = 13.sp, color = palette.brand)
-            if (!smsPermission) Button(onClick = onPermissionSettings, text = stringResource(R.string.open_system_settings), style = ButtonStyle.OutlinedButton)
+            // 开关本身已经说明是否开启，只在缺权限时补一句原因。
+            if (!smsPermission) {
+                BookText(stringResource(R.string.sms_unavailable), size = 13.sp, color = palette.brand)
+                Button(onClick = onPermissionSettings, text = stringResource(R.string.open_system_settings), style = ButtonStyle.OutlinedButton)
+            }
         } }
         item { LedgerCard {
             SettingToggle(stringResource(R.string.default_privacy_title), stringResource(R.string.default_privacy_hint),
@@ -60,6 +64,11 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
                 SettingToggle(stringResource(R.string.wan_grouping_title),
                     stringResource(if (data.settings.useWanGrouping) R.string.wan_grouping_hint else R.string.thousands_grouping_hint),
                     data.settings.useWanGrouping, !busy, onUseWanGrouping)
+                LedgerDivider()
+                SettingChoice(stringResource(R.string.difference_basis_title),
+                    netLabel = stringResource(R.string.difference_basis_net),
+                    totalLabel = stringResource(R.string.difference_basis_total),
+                    usesNet = data.settings.differenceUsesNet, enabled = !busy, onSelect = onDifferenceUsesNet)
             }
         }
         item {
@@ -67,6 +76,37 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
         }
         item { Button(onClick = onAbout, text = stringResource(R.string.about_title), style = ButtonStyle.OutlinedButton,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) }
+    }
+}
+
+/** 二选一设置：两行互斥选项，选中后用圆点标记。 */
+@Composable
+private fun SettingChoice(title: String, netLabel: String, totalLabel: String,
+                          usesNet: Boolean, enabled: Boolean, onSelect: (Boolean) -> Unit) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        BookText(title, weight = FontWeight.Medium, size = 16.sp)
+        BookText(stringResource(R.string.difference_basis_hint), size = 13.sp,
+            color = LocalBookPalette.current.secondary)
+        Column(Modifier.fillMaxWidth().selectableGroup()) {
+            ChoiceRow(netLabel, usesNet, enabled) { onSelect(true) }
+            ChoiceRow(totalLabel, !usesNet, enabled) { onSelect(false) }
+        }
+    }
+}
+
+@Composable
+private fun ChoiceRow(label: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val palette = LocalBookPalette.current
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        .selectable(selected, enabled = enabled, role = Role.RadioButton,
+            interactionSource = remember { MutableInteractionSource() },
+            indication = ripple(color = palette.brand), onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(Modifier.size(20.dp).border(2.dp, if (selected) palette.brand else palette.stroke, CircleShape),
+            contentAlignment = Alignment.Center) {
+            if (selected) Box(Modifier.size(10.dp).background(palette.brand, CircleShape))
+        }
+        BookText(label, Modifier.weight(1f), 15.sp, if (selected) FontWeight.Medium else FontWeight.Normal)
     }
 }
 

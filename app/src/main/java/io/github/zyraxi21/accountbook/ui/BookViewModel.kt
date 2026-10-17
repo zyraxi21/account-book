@@ -33,7 +33,8 @@ private const val POLL_INTERVAL_MS = 700L
 
 data class BookUiState(val loading: Boolean = true, val data: BookData = BookData(), val storageError: BookError? = null)
 data class BalanceDraft(val channelId: String, val name: String, val amount: String = "", val active: Boolean = true)
-data class AssetDraft(val originalMonth: YearMonth?, val registeredAt: Instant, val balances: List<BalanceDraft>, val liability: String = "")
+data class AssetDraft(val originalMonth: YearMonth?, val registeredAt: Instant, val balances: List<BalanceDraft>,
+                      val liability: String = "", val receivable: String = "")
 data class IncomeDraft(val id: String, val title: String, val amount: String, val receivedAt: Instant,
                        val source: IncomeSource, val fingerprint: String? = null)
 data class ChannelDraft(val id: String? = null, val name: String = "")
@@ -202,7 +203,7 @@ class BookViewModel(
             else month.atEndOfMonth().atTime(23, 59).atZone(BOOK_ZONE).toInstant()
         _assetDraft.value = AssetDraft(snapshot?.month, time, ids.mapNotNull { id -> channels[id]?.let { channel ->
             BalanceDraft(id, existing[id]?.channelName ?: channel.name, existing[id]?.amount?.inputText().orEmpty(), channel.active)
-        } }, snapshot?.liability?.inputText().orEmpty())
+        } }, snapshot?.liability?.inputText().orEmpty(), snapshot?.receivable?.inputText().orEmpty())
     }
 
     fun updateAssetDate(time: Instant) { _assetDraft.value = _assetDraft.value?.copy(registeredAt = time) }
@@ -232,6 +233,7 @@ class BookViewModel(
         })
     }
     fun updateLiability(value: String) { _assetDraft.value = _assetDraft.value?.copy(liability = value) }
+    fun updateReceivable(value: String) { _assetDraft.value = _assetDraft.value?.copy(receivable = value) }
 
     fun closeAssetDraft() { if (!_busy.value) _assetDraft.value = null }
     fun saveAsset() {
@@ -240,7 +242,7 @@ class BookViewModel(
         perform {
             val snapshot = MonthlyAssetSnapshot(atSaveTime(draft.registeredAt), draft.balances.map {
                 ChannelBalance(it.channelId, it.name, Money.parse(it.amount.ifBlank { "0" }))
-            }, Money.parse(draft.liability.ifBlank { "0" }))
+            }, Money.parse(draft.liability.ifBlank { "0" }), Money.parse(draft.receivable.ifBlank { "0" }))
             repository.saveAsset(snapshot, draft.originalMonth)
             _selectedMonth.value = minOf(snapshot.month, thisMonth)
             _assetDraft.value = null
@@ -312,6 +314,7 @@ class BookViewModel(
     fun setHideOnStartup(enabled: Boolean) { saveSetting { repository.setHideOnStartup(enabled) } }
     fun setAllowScreenshots(enabled: Boolean) { saveSetting { repository.setAllowScreenshots(enabled) } }
     fun setUseWanGrouping(enabled: Boolean) { saveSetting { repository.setUseWanGrouping(enabled) } }
+    fun setDifferenceUsesNet(usesNet: Boolean) { saveSetting { repository.setDifferenceUsesNet(usesNet) } }
     private fun saveSetting(action: suspend () -> Unit) {
         if (!_state.value.loading && _state.value.storageError == null && !_busy.value) writeQuietly(action)
     }
@@ -408,6 +411,12 @@ class BookViewModel(
         if (transfer == null) { _message.value = R.string.error_export_unavailable; return false }
         return true
     }
+
+    /**
+     * 是否可以检查更新。开发版会传空 updater：它的更新包属于另一个应用（不同 applicationId），
+     * 下载并安装只会多装一个 release 版，因此直接隐藏检查入口。
+     */
+    val updateAvailable: Boolean get() = updater != null && currentVersion != null
 
     /** 每次启动检查一次；同一个 ViewModel 在配置变化后继续沿用检查结果。 */
     fun checkForUpdatesOnStartup() {

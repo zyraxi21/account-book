@@ -58,7 +58,8 @@ class EncryptedBookRepository(
 
     override suspend fun saveAsset(snapshot: MonthlyAssetSnapshot, originalMonth: YearMonth?) = write { dao ->
         if (snapshot.balances.isEmpty()) throw BookException(BookError.CHANNEL_REQUIRED)
-        if (snapshot.liability.fen < 0 || snapshot.balances.any { it.amount.fen < 0 }) throw BookException(BookError.INVALID_AMOUNT)
+        if (snapshot.liability.fen < 0 || snapshot.receivable.fen < 0 ||
+            snapshot.balances.any { it.amount.fen < 0 }) throw BookException(BookError.INVALID_AMOUNT)
         snapshot.total
         if (snapshot.balances.map { it.channelId }.distinct().size != snapshot.balances.size) throw BookException(BookError.CHANNEL_REQUIRED)
         val month = snapshot.month.toString()
@@ -73,7 +74,7 @@ class EncryptedBookRepository(
             ChannelBalanceEntity(month, balance.channelId, oldNames[balance.channelId] ?: channel.name, balance.amount.fen, index)
         }
         if (originalMonth != null && snapshot.month != originalMonth) dao.deleteSnapshot(originalMonth.toString())
-        dao.saveSnapshot(MonthlyAssetEntity(month, snapshot.registeredAt.toEpochMilli(), snapshot.liability.fen))
+        dao.saveSnapshot(MonthlyAssetEntity(month, snapshot.registeredAt.toEpochMilli(), snapshot.liability.fen, snapshot.receivable.fen))
         dao.deleteBalances(month)
         dao.insertBalances(balances)
         saveChannelOrder(dao, balances.filter { channels.getValue(it.channelId).active }.map { it.channelId })
@@ -169,6 +170,11 @@ class EncryptedBookRepository(
         dao.saveSettings(current.copy(useWanGrouping = enabled))
     }
 
+    override suspend fun setDifferenceUsesNet(enabled: Boolean) = write { dao ->
+        val current = dao.settings() ?: AppSettingsEntity()
+        dao.saveSettings(current.copy(differenceUsesNet = enabled))
+    }
+
     /** 单一事务提交；设备偏好和短信去重凭据在覆盖时也保留。 */
     override suspend fun importBook(data: BookData, mode: ImportMode): BookImportResult = write { dao ->
         val existing = readBook(dao)
@@ -186,7 +192,8 @@ class EncryptedBookRepository(
             snapshot.balances.mapIndexed { index, balance -> ChannelBalanceEntity(snapshot.month.toString(), balance.channelId,
                 balance.channelName, balance.amount.fen, index) }
         }
-        pending.snapshots.forEach { dao.saveSnapshot(MonthlyAssetEntity(it.month.toString(), it.registeredAt.toEpochMilli(), it.liability.fen)) }
+        pending.snapshots.forEach { dao.saveSnapshot(MonthlyAssetEntity(it.month.toString(), it.registeredAt.toEpochMilli(),
+            it.liability.fen, it.receivable.fen)) }
         if (balances.isNotEmpty()) dao.insertBalances(balances)
         pending.incomes.forEach { dao.saveIncome(it.toEntity()) }
         if (mode == ImportMode.REPLACE) {
@@ -226,7 +233,7 @@ class EncryptedBookRepository(
         snapshots = dao.snapshots().map { record ->
             MonthlyAssetSnapshot(Instant.ofEpochMilli(record.asset.registeredAtMillis),
                 record.balances.sortedBy { it.position }.map { ChannelBalance(it.channelId, it.channelName, Money(it.amountFen)) },
-                Money(record.asset.liabilityFen))
+                Money(record.asset.liabilityFen), Money(record.asset.receivableFen))
         },
         incomes = dao.incomes().map { Income(it.id, it.title, Money(it.amountFen), Instant.ofEpochMilli(it.receivedAtMillis), IncomeSource.valueOf(it.source)) },
         settings = dao.settings().let { settings -> BookSettings(
@@ -236,6 +243,7 @@ class EncryptedBookRepository(
             hideOnStartup = settings?.hideOnStartup ?: true,
             allowScreenshots = settings?.allowScreenshots ?: false,
             useWanGrouping = settings?.useWanGrouping ?: false,
+            differenceUsesNet = settings?.differenceUsesNet ?: true,
         ) },
     )
 
