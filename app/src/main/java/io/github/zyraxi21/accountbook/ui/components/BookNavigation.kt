@@ -40,7 +40,6 @@ import com.microsoft.fluentui.tokenized.controls.Button
 import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.ui.theme.AccountBookTheme
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
-import io.github.zyraxi21.accountbook.ui.theme.accentBrush
 
 private object PrivacyButtonTokens : ButtonTokens() {
     @Composable
@@ -52,13 +51,13 @@ private object PrivacyButtonTokens : ButtonTokens() {
     @Composable override fun iconColor(buttonInfo: ButtonInfo) = foreground()
 }
 
-/** 渐变铺满屏幕顶部与状态栏，仅将标题和隐私按钮避开系统安全区。 */
+/** 品牌填充色铺满屏幕顶部与状态栏，仅将标题和隐私按钮避开系统安全区。 */
 @Composable
 fun BookTopBar(hidden: Boolean, onPrivacyClick: () -> Unit, @StringRes title: Int = R.string.app_name) {
     val palette = LocalBookPalette.current
     Box(
         Modifier.fillMaxWidth()
-            .background(palette.accentBrush()).testTag("book_top_bar_card")
+            .background(palette.topBar).testTag("book_top_bar_card")
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
         contentAlignment = Alignment.Center,
     ) {

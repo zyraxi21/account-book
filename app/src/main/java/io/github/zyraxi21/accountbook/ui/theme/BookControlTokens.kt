@@ -8,7 +8,7 @@ import com.microsoft.fluentui.theme.token.StateBrush
 import com.microsoft.fluentui.theme.token.StateColor
 import com.microsoft.fluentui.theme.token.controlTokens.*
 
-/** 原生 Fluent 控件共用品牌渐变、表面色与提示配色。 */
+/** 原生 Fluent 控件共用主题填充色、表面色与提示配色。 */
 internal class BookControlTokens : ControlTokens() {
     init {
         updateToken(ControlType.AppBarControlType, BookAppBarTokens)
@@ -22,7 +22,7 @@ internal class BookControlTokens : ControlTokens() {
 }
 
 private object BookAppBarTokens : AppBarTokens() {
-    // 渐变由外层圆角卡片承托，保持卡片内外连续。
+    // 背景由外层容器承托，保持内外连续。
     @Composable override fun backgroundBrush(info: AppBarInfo) = SolidColor(Color.Transparent)
     @Composable override fun titleTextColor(info: AppBarInfo) = LocalBookPalette.current.onTopBar
 }
@@ -31,8 +31,10 @@ private object BookButtonTokens : ButtonTokens() {
     @Composable override fun backgroundBrush(buttonInfo: ButtonInfo): StateBrush {
         if (buttonInfo.style != ButtonStyle.Button) return super.backgroundBrush(buttonInfo)
         val palette = LocalBookPalette.current
-        return StateBrush(rest = palette.accentBrush(), pressed = palette.accentBrush(pressed = true),
-            selected = palette.accentBrush(pressed = true), focused = palette.accentBrush(),
+        return StateBrush(rest = SolidColor(palette.primaryColor()),
+            pressed = SolidColor(palette.primaryColor(pressed = true)),
+            selected = SolidColor(palette.primaryColor(pressed = true)),
+            focused = SolidColor(palette.primaryColor()),
             disabled = super.backgroundBrush(buttonInfo).disabled)
     }
 }
@@ -40,8 +42,10 @@ private object BookButtonTokens : ButtonTokens() {
 private object BookFabTokens : FABTokens() {
     @Composable override fun backgroundBrush(fabInfo: FABInfo): StateBrush {
         val palette = LocalBookPalette.current
-        return StateBrush(rest = palette.accentBrush(), pressed = palette.accentBrush(pressed = true),
-            focused = palette.accentBrush(), disabled = super.backgroundBrush(fabInfo).disabled)
+        return StateBrush(rest = SolidColor(palette.primaryColor()),
+            pressed = SolidColor(palette.primaryColor(pressed = true)),
+            focused = SolidColor(palette.primaryColor()),
+            disabled = super.backgroundBrush(fabInfo).disabled)
     }
 }
 
