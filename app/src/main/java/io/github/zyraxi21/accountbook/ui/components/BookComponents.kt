@@ -228,19 +228,3 @@ fun ConfirmDialog(title: String, hint: String, busy: Boolean, onClose: () -> Uni
     // 删除不可撤销，主按钮用红色与普通保存区分。
     EditorDialog(title, busy, onClose, stringResource(R.string.delete), onConfirm, destructive = true) { BookText(hint) }
 }
-
-/** 轻量说明弹窗，用于把公式这类细节从正文里收起。 */
-@Composable
-fun HintDialog(title: String, text: String, onDismiss: () -> Unit) {
-    val maxWidth = bookDialogMaxWidth()
-    Dialog(onDismiss = onDismiss, dialogProperties = DialogProperties(dismissOnBackPress = true,
-        dismissOnClickOutside = true, securePolicy = SecureFlagPolicy.Inherit, usePlatformDefaultWidth = false)) {
-        Column(Modifier.widthIn(max = maxWidth).fillMaxWidth().padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            BookText(title, size = 20.sp, weight = FontWeight.SemiBold)
-            BookText(text)
-            Button(onClick = onDismiss, text = stringResource(R.string.got_it),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
-        }
-    }
-}

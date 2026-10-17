@@ -37,11 +37,12 @@
     <string name="liability_amount">负债（元）</string>
     <string name="net_assets">净资产</string>
     <string name="asset_difference">与上月差额</string>
+    <string name="difference_hint_net">按净资产计算</string>
+    <string name="difference_hint_total">按总资产计算</string>
     <string name="monthly_income">本月收入</string>
     <string name="estimated_expense">估算月支出</string>
     <string name="estimate_hint">上月净资产 ＋ 本月收入 − 本月净资产</string>
-    <string name="estimate_hint_title">估算月支出</string>
-    <string name="got_it">知道了</string>
+    <string name="estimate_hint_title">估算月支出的计算方式</string>
     <string name="no_previous_month">暂无上月记录</string>
     <string name="no_assets_title">这个月还没有资产记录</string>
     <string name="no_assets_hint">登记各渠道余额和负债，开始核对月度资产。</string>
