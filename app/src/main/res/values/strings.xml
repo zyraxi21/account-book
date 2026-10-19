@@ -77,10 +77,10 @@
     <string name="sms_example">尾号1234卡10月6日12:34工商银行收入(工资)1000.00元，余额5000.00元。【工商银行】</string>
     <string name="sms_parse_hint">解析后可核对和修改项目、金额及年份，再保存收入。</string>
     <string name="parse_income">解析收入</string>
-    <string name="sms_auto_import">自动识别工行收入</string>
-    <string name="sms_auto_hint">开启并授权后，启动或返回应用时补查95588的收入短信，核对后再入账。短信余额不会修改资产表。</string>
-    <string name="sms_unavailable">未获得读取短信权限，启动补查不可用。可重新开启此开关授权，或使用粘贴解析。</string>
-    <string name="sms_grant_failed">未获得读取短信权限。请再次开启自动识别以重新授权，或使用粘贴解析。</string>
+    <string name="sms_auto_import">自动登记工行收入</string>
+    <string name="sms_auto_hint">开启并授权后，来自95588的工行收入短信自动入账。短信余额不会修改资产表。</string>
+    <string name="sms_unavailable">接收短信权限未授予，自动登记不可用。仍可使用粘贴解析。</string>
+    <string name="sms_grant_failed">未获得短信权限。请再次开启自动登记以重新授权，或使用粘贴解析。</string>
     <string name="sms_permission_title">读取工行收入短信</string>
     <string name="sms_permission_hint">读取短信权限用于补查95588的工行收入。识别到的项目、金额和日期仅保存在本机加密账本中，由你核对后决定是否入账。拒绝授权仍可使用粘贴解析。</string>
     <string name="sms_permission_allow">继续授权</string>
