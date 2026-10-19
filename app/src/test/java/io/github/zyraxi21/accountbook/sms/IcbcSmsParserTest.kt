@@ -21,6 +21,14 @@ class IcbcSmsParserTest {
         assertEquals(64, parsed.fingerprint.length)
     }
 
+    @Test fun parsesTheReportedSmsWithAnIntegerIncomeAmount() {
+        val parsed = success("尾号1234卡10月19日17:12工商银行收入(入账)100元，余额660.60元。【工商银行】",
+            local("2026-10-19T17:13:00"))
+        assertEquals("入账", parsed.title)
+        assertEquals(Money(10000), parsed.amount)
+        assertEquals(local("2026-10-19T17:12:00"), parsed.receivedAt)
+    }
+
     @Test fun supportsFullWidthPunctuationAndGroupedAmounts() {
         val variant = body.replace("(工资)", "（工资）").replace("12:34", "12：34").replace("12345.67", "12,345.67") + "\n"
         assertEquals(success(body, reference), success(variant, reference))

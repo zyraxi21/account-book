@@ -17,6 +17,8 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
+import java.time.Clock
 import java.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -143,5 +145,76 @@ class SmsReviewViewModelTest {
         assertEquals(1, reads)
         query.complete(Unit)
         assertEquals(2, reads)
+    }
+
+    @Test fun startupWithOnlyManualIncomeOpensReviewForTheReportedSms() {
+        val through = Instant.parse("2026-10-19T09:13:00Z")
+        base.data.value = base.data.value.copy(incomes = listOf(Income("manual", "手动登记", Money(100), through)))
+        base.pendingSms.value = emptyList()
+        val reader = object : SmsInboxReader {
+            override fun hasPermission() = true
+            override suspend fun read(since: Instant?, through: Instant): List<InboxSms> {
+                assertNull(since)
+                return listOf(InboxSms("95588", "尾号1234卡10月19日17:12工商银行收入(入账)100元，余额660.60元。【工商银行】",
+                    through.minusSeconds(30)))
+            }
+        }
+        val repo = object : BookRepository by base {
+            override suspend fun smsScanSince(): Instant? = null
+            override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?) {
+                base.pendingSms.value = incomes
+            }
+        }
+        val scanned = BookViewModel(repo, smsScanner = SmsInboxScanner(repo, reader, clock = Clock.fixed(through, BOOK_ZONE)))
+        store.put("manual-only-startup", scanned)
+        scanned.onForeground()
+        assertEquals(SmsScanUiState.Complete(1, 1), scanned.smsScanState.value)
+        assertTrue(scanned.smsReview.value.visible)
+        assertEquals("入账", scanned.smsReview.value.incomes.single().title)
+        assertEquals(Money(10000), scanned.smsReview.value.incomes.single().amount)
+        assertEquals(IncomeSource.MANUAL, scanned.state.value.data.incomes.single().source)
+    }
+
+    @Test fun unavailablePermissionAndFailedQueriesHaveDistinctStatusWithoutStartupNotifications() {
+        var permission = false
+        val reader = object : SmsInboxReader {
+            override fun hasPermission() = permission
+            override suspend fun read(since: Instant?, through: Instant): List<InboxSms> = throw IOException()
+        }
+        val repo = object : BookRepository by base { override suspend fun smsScanSince(): Instant? = null }
+        val scanned = BookViewModel(repo, smsScanner = SmsInboxScanner(repo, reader))
+        store.put("scan-failure", scanned)
+        scanned.onForeground()
+        assertEquals(SmsScanUiState.PermissionRequired, scanned.smsScanState.value)
+        assertNull(scanned.message.value)
+        permission = true
+        scanned.onForeground()
+        assertEquals(SmsScanUiState.Failed, scanned.smsScanState.value)
+        assertNull(scanned.message.value)
+    }
+
+    @Test fun recheckBypassesTheOldCheckpointAndReopensDeferredItems() {
+        val queriedSince = mutableListOf<Instant?>()
+        val oldCheckpoint = Instant.parse("2026-10-19T09:00:00Z")
+        val reader = object : SmsInboxReader {
+            override fun hasPermission() = true
+            override suspend fun read(since: Instant?, through: Instant): List<InboxSms> {
+                queriedSince.add(since)
+                return emptyList()
+            }
+        }
+        val repo = object : BookRepository by base {
+            override suspend fun smsScanSince() = oldCheckpoint
+            override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?) = Unit
+        }
+        val scanned = BookViewModel(repo, smsScanner = SmsInboxScanner(repo, reader))
+        store.put("recheck", scanned)
+        scanned.onForeground()
+        scanned.dismissSmsReview()
+        assertFalse(scanned.smsReview.value.visible)
+        scanned.recheckSmsInbox()
+        assertEquals(listOf(oldCheckpoint, null), queriedSince)
+        assertTrue(scanned.smsReview.value.visible)
+        assertEquals(SmsScanUiState.Complete(0, 0), scanned.smsScanState.value)
     }
 }

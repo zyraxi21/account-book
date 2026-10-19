@@ -2,20 +2,22 @@ package io.github.zyraxi21.accountbook.sms
 
 import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.provider.Telephony
-import androidx.core.content.ContextCompat
+import androidx.core.content.PermissionChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.time.Instant
 
+/** 同时检查运行时授权和系统对读取操作的限制，避免授权开关开启却实际不可读。 */
+internal fun hasSmsReadPermission(context: Context): Boolean =
+    PermissionChecker.checkSelfPermission(context, Manifest.permission.READ_SMS) == PermissionChecker.PERMISSION_GRANTED
+
 /** 只查询工行号码、时间范围和解析必需列，不修改已读状态或保存短信原文。 */
 class AndroidSmsInboxReader(context: Context) : SmsInboxReader {
     private val context = context.applicationContext
 
-    override fun hasPermission() = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
-        PackageManager.PERMISSION_GRANTED
+    override fun hasPermission() = hasSmsReadPermission(context)
 
     override suspend fun read(since: Instant?, through: Instant): List<InboxSms> = withContext(Dispatchers.IO) {
         if (!hasPermission()) throw SecurityException()

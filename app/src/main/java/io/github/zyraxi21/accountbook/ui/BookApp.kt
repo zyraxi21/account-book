@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.provider.Settings
@@ -23,7 +22,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -36,6 +34,7 @@ import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.data.transfer.ExportFormat
 import io.github.zyraxi21.accountbook.domain.Income
 import io.github.zyraxi21.accountbook.domain.ImportMode
+import io.github.zyraxi21.accountbook.sms.hasSmsReadPermission
 import io.github.zyraxi21.accountbook.ui.assets.AssetEditor
 import io.github.zyraxi21.accountbook.ui.assets.AssetsScreen
 import io.github.zyraxi21.accountbook.ui.components.*
@@ -64,6 +63,7 @@ fun BookApp(vm: BookViewModel) {
     val channelDraft by vm.channelDraft.collectAsStateWithLifecycle()
     val smsText by vm.smsText.collectAsStateWithLifecycle()
     val smsReview by vm.smsReview.collectAsStateWithLifecycle()
+    val smsScanState by vm.smsScanState.collectAsStateWithLifecycle()
     val transferTask by vm.transferTask.collectAsStateWithLifecycle()
     val transferBusy by vm.transferBusy.collectAsStateWithLifecycle()
     val transferProgress by vm.transferProgress.collectAsStateWithLifecycle()
@@ -98,6 +98,14 @@ fun BookApp(vm: BookViewModel) {
             context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.READ_SMS) == true ->
                 vm.notifyMessage(R.string.sms_grant_failed)
             else -> { enableSmsAfterSettings = true; openAppPermissionSettings(context) }
+        }
+    }
+    val requestSmsPermission: () -> Unit = {
+        when {
+            hasSmsReadPermission(context) -> vm.setSmsEnabled(true)
+            context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.READ_SMS) == true ->
+                smsPermissionRationale = true
+            else -> permissionLauncher.launch(smsPermissions)
         }
     }
     // 每个格式使用固定 MIME 的独立合约，避免重组尚未更新合约就启动旧格式选择器。
@@ -183,13 +191,8 @@ fun BookApp(vm: BookViewModel) {
                         else -> SettingsScreen(state.data, hidden, busy || transferBusy, smsPermission, transferEnabled = vm.transferAvailable && !hidden && state.storageError == null,
                             transferProgress = transferProgress,
                             onSmsChange = { enabled ->
-                                when {
-                                    !enabled -> { enableSmsAfterSettings = false; vm.setSmsEnabled(false) }
-                                    hasSmsReadPermission(context) -> vm.setSmsEnabled(true)
-                                    context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.READ_SMS) == true ->
-                                        smsPermissionRationale = true
-                                    else -> permissionLauncher.launch(smsPermissions)
-                                }
+                                if (!enabled) { enableSmsAfterSettings = false; vm.setSmsEnabled(false) }
+                                else requestSmsPermission()
                             },
                             onExportJson = { vm.startExport(ExportFormat.JSON) },
                             onExportCsv = { vm.startExport(ExportFormat.CSV) },
@@ -198,7 +201,8 @@ fun BookApp(vm: BookViewModel) {
                             onDifferenceUsesNet = vm::setDifferenceUsesNet,
                             onAbout = { aboutVisible = true },
                             pendingSmsCount = if (state.data.settings.smsAutoImportEnabled) smsReview.incomes.size else 0,
-                            onReviewSms = vm::openSmsReview)
+                            onReviewSms = vm::openSmsReview, smsScanState = smsScanState,
+                            onRecheckSms = vm::recheckSmsInbox, onGrantSms = requestSmsPermission)
                     }
                     if (!modalVisible) BookSnackbarHost(Modifier.align(Alignment.BottomCenter))
                 }
@@ -251,10 +255,6 @@ fun BookApp(vm: BookViewModel) {
         if (updateDialogVisible) UpdateDialogs(updateState, vm, snackbarHost = !aboutVisible)
     }
 }
-
-/** 此值只用于当次检查，实际查询前由读取器再次确认授权。 */
-private fun hasSmsReadPermission(context: Context) = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
-    PackageManager.PERMISSION_GRANTED
 
 /** 读取系统文件选择器返回的显示名，提供方不响应查询时退化为空串。 */
 private fun displayName(context: Context, uri: Uri?): String {

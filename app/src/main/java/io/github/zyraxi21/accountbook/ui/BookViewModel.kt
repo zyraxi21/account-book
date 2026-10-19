@@ -45,6 +45,14 @@ data class ChannelDraft(val id: String? = null, val name: String = "")
 data class SmsReviewState(val incomes: List<ParsedIcbcIncome> = emptyList(),
                           val selected: Set<String> = emptySet(), val visible: Boolean = false)
 
+sealed interface SmsScanUiState {
+    data object Idle : SmsScanUiState
+    data object Scanning : SmsScanUiState
+    data object PermissionRequired : SmsScanUiState
+    data object Failed : SmsScanUiState
+    data class Complete(val checkedCount: Int, val recognizedCount: Int) : SmsScanUiState
+}
+
 /** 导入导出任务。界面只在同一时刻保留一个，避免重复打开系统文件选择器。 */
 sealed interface TransferTask {
     data class Export(val format: ExportFormat) : TransferTask
@@ -96,8 +104,11 @@ class BookViewModel(
     val smsText = _smsText.asStateFlow()
     private val _smsReview = MutableStateFlow(SmsReviewState())
     val smsReview = _smsReview.asStateFlow()
+    private val _smsScanState = MutableStateFlow<SmsScanUiState>(SmsScanUiState.Idle)
+    val smsScanState = _smsScanState.asStateFlow()
     private var deferredSms = emptySet<String>()
     private var smsScanRequested = false
+    private var smsRecheckRequested = false
     private var smsForeground = false
     private var smsScanJob: Job? = null
     private val _busy = MutableStateFlow(false)
@@ -205,20 +216,36 @@ class BookViewModel(
         if (!smsScanRequested || _state.value.loading || _state.value.storageError != null ||
             !_state.value.data.settings.smsAutoImportEnabled || !smsForeground || smsScanJob?.isActive == true) return
         smsScanRequested = false
+        val recheck = smsRecheckRequested
+        smsRecheckRequested = false
         smsScanJob = viewModelScope.launch {
+            _smsScanState.value = SmsScanUiState.Scanning
             try {
-                scanner.scan()
+                val result = scanner.scan(recheck)
+                _smsScanState.value = result?.let { SmsScanUiState.Complete(it.checkedCount, it.recognizedCount) }
+                    ?: SmsScanUiState.PermissionRequired
             } catch (error: CancellationException) { throw error
             } catch (_: SecurityException) {
-                // 授权可随时被收回；不弹权限框，不推进扫描进度。
+                _smsScanState.value = SmsScanUiState.PermissionRequired
             } catch (_: Exception) {
-                // 静默补查失败后保留原进度，下次返回前台重试。
+                _smsScanState.value = SmsScanUiState.Failed
             } finally {
                 smsScanJob = null
                 // 查询期间再次返回前台的请求，留到本次查询完成后执行。
                 launchRequestedSmsScan()
             }
         }
+    }
+
+    /** 从设置主动补查时重新检查收件箱，并允许再次核对本次稍后处理的清单。 */
+    fun recheckSmsInbox() {
+        if (_state.value.loading || _state.value.storageError != null ||
+            !_state.value.data.settings.smsAutoImportEnabled || _busy.value) return
+        deferredSms = emptySet()
+        refreshSmsReview(_smsReview.value.incomes)
+        smsRecheckRequested = true
+        smsScanRequested = true
+        launchRequestedSmsScan()
     }
 
     private fun refreshSmsReview(pending: List<ParsedIcbcIncome>) {

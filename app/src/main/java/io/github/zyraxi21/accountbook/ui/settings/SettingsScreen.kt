@@ -30,6 +30,7 @@ import io.github.zyraxi21.accountbook.R
 import io.github.zyraxi21.accountbook.domain.BookData
 import io.github.zyraxi21.accountbook.ui.BookViewModel
 import io.github.zyraxi21.accountbook.ui.ChannelDraft
+import io.github.zyraxi21.accountbook.ui.SmsScanUiState
 import io.github.zyraxi21.accountbook.ui.components.*
 import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 
@@ -40,7 +41,9 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
                    onExportJson: () -> Unit, onExportCsv: () -> Unit, onImport: () -> Unit,
                    onHideOnStartup: (Boolean) -> Unit, onAllowScreenshots: (Boolean) -> Unit,
                    onUseWanGrouping: (Boolean) -> Unit, onDifferenceUsesNet: (Boolean) -> Unit, onAbout: () -> Unit,
-                   pendingSmsCount: Int = 0, onReviewSms: () -> Unit = {}) {
+                   pendingSmsCount: Int = 0, onReviewSms: () -> Unit = {},
+                   smsScanState: SmsScanUiState = SmsScanUiState.Idle,
+                   onRecheckSms: () -> Unit = {}, onGrantSms: () -> Unit = {}) {
     val palette = LocalBookPalette.current
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { SectionHeading(stringResource(R.string.tab_settings)) }
@@ -48,8 +51,25 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
             SettingToggle(stringResource(R.string.sms_auto_import), stringResource(R.string.sms_auto_hint),
                 data.settings.smsAutoImportEnabled, !busy, onSmsChange)
             // 开关本身已经说明是否开启，只在缺权限时补一句原因。
-            if (!smsPermission) {
+            if (!smsPermission && smsScanState != SmsScanUiState.PermissionRequired) {
                 BookText(stringResource(R.string.sms_unavailable), size = 13.sp, color = palette.brand)
+            }
+            if (data.settings.smsAutoImportEnabled) {
+                val status = when (smsScanState) {
+                    SmsScanUiState.Idle -> null
+                    SmsScanUiState.Scanning -> stringResource(R.string.sms_scan_running)
+                    SmsScanUiState.PermissionRequired -> stringResource(R.string.sms_scan_permission_required)
+                    SmsScanUiState.Failed -> stringResource(R.string.sms_scan_failed)
+                    is SmsScanUiState.Complete -> stringResource(R.string.sms_scan_complete,
+                        smsScanState.checkedCount, smsScanState.recognizedCount)
+                }
+                status?.let { BookText(it, size = 13.sp, color = palette.secondary) }
+                val needsPermission = !smsPermission || smsScanState == SmsScanUiState.PermissionRequired
+                Button(onClick = if (needsPermission) onGrantSms else onRecheckSms,
+                    text = stringResource(if (needsPermission) R.string.sms_read_permission_allow else R.string.sms_scan_recheck),
+                    style = ButtonStyle.OutlinedButton, enabled = !busy && smsScanState != SmsScanUiState.Scanning,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
+                if (!needsPermission) BookText(stringResource(R.string.sms_scan_recheck_hint), size = 13.sp, color = palette.secondary)
             }
             if (pendingSmsCount > 0) {
                 Button(onClick = onReviewSms, text = stringResource(R.string.sms_review_pending, pendingSmsCount),

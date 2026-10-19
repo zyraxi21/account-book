@@ -84,6 +84,13 @@
     <string name="sms_permission_title">读取工行收入短信</string>
     <string name="sms_permission_hint">读取短信权限用于补查95588的工行收入。识别到的项目、金额和日期仅保存在本机加密账本中，由你核对后决定是否入账。拒绝授权仍可使用粘贴解析。</string>
     <string name="sms_permission_allow">继续授权</string>
+    <string name="sms_read_permission_allow">授权读取短信</string>
+    <string name="sms_scan_running">正在补查工行收入短信……</string>
+    <string name="sms_scan_permission_required">系统未允许读取短信，启动补查未执行。请检查短信权限及系统隐私限制。</string>
+    <string name="sms_scan_failed">读取或保存短信失败，补查进度已保留，可重新补查。</string>
+    <string name="sms_scan_complete">已检查 %1$d 条工行短信，识别到 %2$d 笔收入。已入账或忽略的短信不会重复提醒。</string>
+    <string name="sms_scan_recheck">重新补查短信</string>
+    <string name="sms_scan_recheck_hint">重新检查收件箱中的全部工行收入短信，由你核对后入账。</string>
     <string name="sms_review_title">发现 %1$d 笔待入账收入</string>
     <string name="sms_review_hint">请核对项目、金额和日期。所选收入可统一入账或忽略，未选收入继续保留；忽略后不再提醒。</string>
     <string name="sms_review_hidden_hint">账务数据已隐藏，显示后可核对新识别的工行收入。</string>

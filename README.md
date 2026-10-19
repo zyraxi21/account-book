@@ -98,7 +98,9 @@ Room 2.8.5 通过 SQLCipher 4.19.1 的 `SupportOpenHelperFactory` 打开加密�
 
 `RECEIVE_SMS` 用于在收到系统广播时补充待确认清单，拼接分段短信后仍需用户确认入账。广播被系统或厂商后台策略限制时，启动补查仍可找回已保存在收件箱中的短信。扫描进度与待确认条目在同一个加密事务中保存，读取或落库失败不会推进进度。短信指纹包含卡尾号、推断后的完整日期时间、规范化项目、收入和余额；广播、补查和粘贴共用去重凭据。已入账后删除，或选择忽略的短信，不会再次弹出。短信原文不会另行保存，待确认清单与扫描进度也不进入 JSON／CSV 账务备份。
 
-`READ_SMS` 和 `RECEIVE_SMS` 都属于安装器必须放行的受限权限；普通运行时授权无法替代安装器的放行。读取权限被拒绝或安装器未放行时，设置页显示不可用状态，粘贴解析仍可使用。开关反映用户保存的偏好，缺权限时仍可直接关闭。已开启旧版自动登记的用户，升级后需关闭再重新开启该开关，授予读取权限；应用不会在每次启动时自动弹权限框。[Android 读取短信权限说明](https://developer.android.com/reference/android/Manifest.permission#READ_SMS)、[接收短信权限说明](https://developer.android.com/reference/android/Manifest.permission#RECEIVE_SMS)
+设置页显示本次补查的检查条数与识别收入数，并区分系统未允许读取、读取或保存失败两种情况；启动补查仍保持静默，只有发现待确认收入才弹窗。点击“重新补查短信”会重新检查收件箱中的全部工行短信，不受旧扫描进度限制；已入账或忽略的短信仍按指纹跳过，历史手动收入需自行核对后决定是否入账。
+
+`READ_SMS` 和 `RECEIVE_SMS` 都属于安装器必须放行的受限权限；普通运行时授权无法替代安装器的放行。读取权限被拒绝或安装器未放行时，设置页显示不可用状态，粘贴解析仍可使用。开关反映用户保存的偏好，缺权限时仍可直接关闭。已开启旧版自动登记的用户，升级后可点击“授权读取短信”补充授权，无须关闭再重新开启该开关。读取前同时检查系统对实际读取操作的限制，避免仅凭授权开关误判可读；应用不会在每次启动时自动弹权限框。[Android 读取短信权限说明](https://developer.android.com/reference/android/Manifest.permission#READ_SMS)、[接收短信权限说明](https://developer.android.com/reference/android/Manifest.permission#RECEIVE_SMS)、[实际操作权限检查](https://developer.android.com/reference/androidx/core/content/PermissionChecker)
 
 自行安装时可用以下方式，先在设备开启 USB 调试，并将 SDK `platform-tools` 加入 PATH：
 
@@ -225,6 +227,8 @@ Android Studio 中选择 **Android App 类型的 `app` 配置**和已连接手�
 - Lint 报告：`app/build/reports/lint-results-release.html`。
 
 SQLCipher 的 JNI 和 Room 数据库构造入口沿用依赖的保留规则。应用 `.keep` 仅忽略 Fluent 发布包中两个编译期 Parcelize 注解的缺失提示，未加入应用级整包保留。原生库保留必要的动态符号；当前依赖已去除调试节及静态符号表，无额外原生调试信息随 APK 安装。
+
+2026-10-19 短信补查验证：113 项单元测试通过，覆盖整数金额短信、仅有手动收入时的启动核对、旧进度之前短信的主动重查，以及失败状态的区分。API 37.2 虚拟设备验证了应用停止期间接收短信后启动核对、系统实际拦截读取、批量选择、隐私遮挡及重新补查入口；设备测试使用 Debug。Release Lint 为 0 错误、5 条既有警告，Release、Debug 与测试 APK 均构建成功。
 
 ### 安装包体积
 
