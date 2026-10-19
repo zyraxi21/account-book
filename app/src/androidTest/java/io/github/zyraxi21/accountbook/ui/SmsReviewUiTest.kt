@@ -51,16 +51,20 @@ class SmsReviewUiTest {
         capture("sms-review-light")
         compose.onNodeWithTag("sms_review_2").performClick().assertIsOff()
         compose.onNodeWithText(context.getString(R.string.sms_review_import, 1)).performClick()
-        compose.runOnIdle { assertEquals(setOf("1"), resolved); assertEquals(true, imported) }
+        // 未勾选的记录在入账时一并转为忽略，不再留在待确认里。
+        compose.runOnIdle {
+            assertEquals(setOf("1"), resolved); assertEquals(true, imported)
+            assertTrue(base.pendingSms.value.isEmpty())
+            assertEquals(SmsIncomeStatus.IGNORED, base.smsRecords.value.first { it.fingerprint == "2" }.status)
+        }
         compose.onNodeWithTag("sms_review_list").assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.tab_settings)).performClick()
         compose.onAllNodesWithText(context.getString(R.string.sms_notification_permission_hint)).assertCountEquals(0)
         compose.onAllNodesWithText(context.getString(R.string.sms_scan_recheck)).assertCountEquals(0)
         capture("sms-settings-compact", dialog = false)
-        compose.onNodeWithText(context.getString(R.string.sms_history_entry_pending, 1)).performScrollTo().performClick()
+        // 待确认已清空，入口回到普通标题。
+        compose.onNodeWithText(context.getString(R.string.sms_history_title)).performScrollTo().performClick()
         compose.onNodeWithTag("sms_filter_ALL").assertWidthIsAtLeast(48.dp)
-        compose.onNodeWithTag("sms_ignore_2").performClick()
-        compose.runOnIdle { assertEquals(setOf("2"), resolved); assertEquals(false, imported); assertTrue(base.pendingSms.value.isEmpty()) }
         compose.onNodeWithTag("sms_filter_IGNORED").performClick()
         compose.onNodeWithTag("sms_record_2").assertIsDisplayed()
         compose.onNodeWithTag("sms_record_1").assertDoesNotExist()
