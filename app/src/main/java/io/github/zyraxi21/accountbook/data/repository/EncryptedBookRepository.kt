@@ -86,14 +86,20 @@ class EncryptedBookRepository(
     override suspend fun deleteAsset(month: YearMonth) = write { it.deleteSnapshot(month.toString()) }
 
     override suspend fun saveIncome(income: Income, importFingerprint: String?) = write { dao ->
-        validateIncome(dao, income)
-        if (importFingerprint != null && dao.hasReceipt(importFingerprint)) throw BookException(BookError.SMS_DUPLICATE)
-        val existing = dao.income(income.id)
-        dao.saveIncome(income.copy(title = income.title.trim(), source = existing?.let { IncomeSource.valueOf(it.source) } ?: income.source).toEntity())
-        if (importFingerprint != null) {
-            dao.insertReceipt(SmsImportReceiptEntity(importFingerprint))
-            dao.deletePendingSmsIncome(importFingerprint)
+        if (importFingerprint != null && (dao.hasReceipt(importFingerprint) ||
+                matchingIncome(dao, income.title, income.amount.fen, income.receivedAt.toEpochMilli(), income.id) != null)) {
+            throw BookException(BookError.SMS_DUPLICATE)
         }
+        validateIncome(dao, income)
+        val existing = dao.income(income.id)
+        val saved = income.copy(title = income.title.trim(), source = existing?.let { IncomeSource.valueOf(it.source) } ?: income.source)
+        dao.saveIncome(saved.toEntity())
+        if (importFingerprint != null) {
+            val record = dao.smsIncomeRecord(importFingerprint) ?: SmsIncomeRecordEntity(importFingerprint,
+                saved.title, saved.amount.fen, saved.receivedAt.toEpochMilli())
+            finishSmsRecord(dao, record, SmsIncomeStatus.IMPORTED, saved.id)
+        }
+        reconcilePendingSms(dao)
     }
 
     override suspend fun deleteIncome(id: String) = write { it.deleteIncome(id) }
@@ -206,58 +212,114 @@ class EncryptedBookRepository(
             }
             dao.insertRememberedChannels(remembered.mapIndexed { index, id -> RememberedChannelEntity(id, index) })
         }
+        reconcilePendingSms(dao)
         BookImportResult(mode, pending.channels.size, pending.snapshots.size, pending.incomes.size)
     }
     override suspend fun importSms(parsed: ParsedIcbcIncome, requireAutoEnabled: Boolean): Boolean = write { dao ->
         if (requireAutoEnabled && dao.settings()?.smsAutoImportEnabled != true) return@write false
-        if (dao.hasReceipt(parsed.fingerprint)) return@write false
-        val income = Income(UUID.randomUUID().toString(), parsed.title, parsed.amount, parsed.receivedAt, IncomeSource.SMS)
-        validateIncome(dao, income)
-        dao.insertReceipt(SmsImportReceiptEntity(parsed.fingerprint))
-        dao.saveIncome(income.toEntity())
-        dao.deletePendingSmsIncome(parsed.fingerprint)
-        true
+        val record = stageSmsRecord(dao, parsed)
+        if (record.status != SmsIncomeStatus.PENDING.name) return@write false
+        val imported = importSmsRecord(dao, record)
+        reconcilePendingSms(dao)
+        imported
     }
 
-    override fun observePendingSmsIncomes(): Flow<List<ParsedIcbcIncome>> = flow {
+    override fun observeSmsIncomeRecords(): Flow<List<SmsIncomeRecord>> = flow {
         initialize()
-        emitAll(database.bookDao().observePendingSmsIncomes().map { rows -> rows.map {
-            ParsedIcbcIncome(it.title, Money(it.amountFen), Instant.ofEpochMilli(it.receivedAtMillis), it.fingerprint)
+        database.withTransaction { reconcilePendingSms(database.bookDao()) }
+        emitAll(database.bookDao().observeSmsIncomeRecords().map { rows -> rows.map {
+            SmsIncomeRecord(it.fingerprint, it.title, Money(it.amountFen), Instant.ofEpochMilli(it.receivedAtMillis),
+                SmsIncomeStatus.valueOf(it.status), it.incomeId)
         } })
     }.flowOn(dispatcher)
 
+    override fun observePendingSmsIncomes(): Flow<List<ParsedIcbcIncome>> = observeSmsIncomeRecords().map { records ->
+        records.filter { it.status == SmsIncomeStatus.PENDING }.sortedWith(compareBy({ it.receivedAt }, { it.fingerprint }))
+            .map { ParsedIcbcIncome(it.title, it.amount, it.receivedAt, it.fingerprint) }
+    }
+
     override suspend fun smsScanSince(): Instant? = write { dao ->
-        (dao.settings()?.lastSmsScanAtMillis ?: dao.latestSmsIncomeAtMillis())?.let(Instant::ofEpochMilli)
+        dao.settings()?.lastSmsScanAtMillis?.let(Instant::ofEpochMilli)
     }
 
     override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?) = write { dao ->
         val settings = dao.settings() ?: return@write
         if (!settings.smsAutoImportEnabled) return@write
-        val pending = incomes.distinctBy { it.fingerprint }.filterNot { dao.hasReceipt(it.fingerprint) }.map {
-            if (it.title.isBlank() || it.title.length > 120) throw BookException(BookError.TITLE_REQUIRED)
-            if (it.amount.fen <= 0) throw BookException(BookError.INCOME_MUST_BE_POSITIVE)
-            PendingSmsIncomeEntity(it.fingerprint, it.title, it.amount.fen, it.receivedAt.toEpochMilli())
-        }
-        dao.insertPendingSmsIncomes(pending)
+        incomes.distinctBy { it.fingerprint }.forEach { stageSmsRecord(dao, it) }
+        reconcilePendingSms(dao)
         if (scannedThrough != null) dao.saveSettings(settings.copy(lastSmsScanAtMillis =
             maxOf(settings.lastSmsScanAtMillis ?: Long.MIN_VALUE, scannedThrough.toEpochMilli())))
     }
 
-    override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): Int = write { dao ->
-        val selected = dao.pendingSmsIncomes().filter { it.fingerprint in fingerprints }
-        for (pending in selected) {
-            if (!dao.hasReceipt(pending.fingerprint)) {
-                if (import) {
-                    val income = Income(UUID.randomUUID().toString(), pending.title, Money(pending.amountFen),
-                        Instant.ofEpochMilli(pending.receivedAtMillis), IncomeSource.SMS)
-                    validateIncome(dao, income)
-                    dao.saveIncome(income.toEntity())
-                }
-                dao.insertReceipt(SmsImportReceiptEntity(pending.fingerprint))
+    override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): SmsResolutionResult = write { dao ->
+        var imported = 0
+        var ignored = 0
+        var matched = 0
+        for (fingerprint in fingerprints.sorted()) {
+            val record = dao.smsIncomeRecord(fingerprint) ?: continue
+            val status = SmsIncomeStatus.valueOf(record.status)
+            if (import && status in setOf(SmsIncomeStatus.PENDING, SmsIncomeStatus.IGNORED, SmsIncomeStatus.PROCESSED)) {
+                if (importSmsRecord(dao, record)) imported++ else matched++
+            } else if (!import && status == SmsIncomeStatus.PENDING) {
+                finishSmsRecord(dao, record, SmsIncomeStatus.IGNORED)
+                ignored++
             }
-            dao.deletePendingSmsIncome(pending.fingerprint)
         }
-        selected.size
+        reconcilePendingSms(dao)
+        SmsResolutionResult(imported, ignored, matched)
+    }
+
+    private suspend fun stageSmsRecord(dao: BookDao, parsed: ParsedIcbcIncome): SmsIncomeRecordEntity {
+        if (parsed.title.isBlank() || parsed.title.length > 120) throw BookException(BookError.TITLE_REQUIRED)
+        if (parsed.amount.fen <= 0) throw BookException(BookError.INCOME_MUST_BE_POSITIVE)
+        val existing = dao.smsIncomeRecord(parsed.fingerprint)
+        if (existing != null && existing.status != SmsIncomeStatus.PENDING.name) return existing
+        val record = existing ?: SmsIncomeRecordEntity(parsed.fingerprint, parsed.title.trim(), parsed.amount.fen, parsed.receivedAt.toEpochMilli())
+        val match = matchingIncome(dao, record.title, record.amountFen, record.receivedAtMillis)
+        return when {
+            match != null -> finishSmsRecord(dao, record, SmsIncomeStatus.MATCHED, match.id)
+            existing == null && dao.hasReceipt(record.fingerprint) -> finishSmsRecord(dao, record, SmsIncomeStatus.PROCESSED)
+            else -> record.also { dao.saveSmsIncomeRecord(it) }
+        }
+    }
+
+    /** 识别时与最终入账时都比较，事务内覆盖手动补录和并发确认的情况。 */
+    private suspend fun importSmsRecord(dao: BookDao, record: SmsIncomeRecordEntity): Boolean {
+        val match = matchingIncome(dao, record.title, record.amountFen, record.receivedAtMillis)
+        if (match != null) {
+            finishSmsRecord(dao, record, SmsIncomeStatus.MATCHED, match.id)
+            return false
+        }
+        val income = Income(UUID.randomUUID().toString(), record.title, Money(record.amountFen),
+            Instant.ofEpochMilli(record.receivedAtMillis), IncomeSource.SMS)
+        validateIncome(dao, income)
+        dao.saveIncome(income.toEntity())
+        finishSmsRecord(dao, record, SmsIncomeStatus.IMPORTED, income.id)
+        return true
+    }
+
+    private suspend fun finishSmsRecord(dao: BookDao, record: SmsIncomeRecordEntity, status: SmsIncomeStatus,
+                                        incomeId: String? = null): SmsIncomeRecordEntity {
+        val updated = record.copy(status = status.name, incomeId = incomeId)
+        dao.saveSmsIncomeRecord(updated)
+        if (!dao.hasReceipt(record.fingerprint)) dao.insertReceipt(SmsImportReceiptEntity(record.fingerprint))
+        return updated
+    }
+
+    private suspend fun reconcilePendingSms(dao: BookDao) {
+        dao.pendingSmsIncomes().forEach { record ->
+            matchingIncome(dao, record.title, record.amountFen, record.receivedAtMillis)?.let { match ->
+                finishSmsRecord(dao, record, SmsIncomeStatus.MATCHED, match.id)
+            }
+        }
+    }
+
+    private suspend fun matchingIncome(dao: BookDao, title: String, amountFen: Long, receivedAtMillis: Long,
+                                       exceptId: String? = null): IncomeEntity? {
+        val date = Instant.ofEpochMilli(receivedAtMillis).atZone(BOOK_ZONE).toLocalDate()
+        return dao.matchingIncome(title.trim(), amountFen,
+            date.atStartOfDay(BOOK_ZONE).toInstant().toEpochMilli(),
+            date.plusDays(1).atStartOfDay(BOOK_ZONE).toInstant().toEpochMilli(), exceptId)
     }
 
     private suspend fun validateIncome(dao: BookDao, income: Income) {

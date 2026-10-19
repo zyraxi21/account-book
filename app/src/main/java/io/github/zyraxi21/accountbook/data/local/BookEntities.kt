@@ -60,13 +60,15 @@ data class IncomeEntity(
 @Entity(tableName = "sms_import_receipts")
 data class SmsImportReceiptEntity(@PrimaryKey val fingerprint: String)
 
-/** 只保留核对所需字段；待确认收入与账本一起加密，不保存短信原文。 */
-@Entity(tableName = "pending_sms_incomes")
-data class PendingSmsIncomeEntity(
+/** 保留识别结果与处理状态，不保存短信原文；忽略后仍可浏览和再次入账。 */
+@Entity(tableName = "sms_income_records")
+data class SmsIncomeRecordEntity(
     @PrimaryKey val fingerprint: String,
     val title: String,
     val amountFen: Long,
     val receivedAtMillis: Long,
+    @ColumnInfo(defaultValue = "'PENDING'") val status: String = "PENDING",
+    val incomeId: String? = null,
 )
 
 @Entity(tableName = "app_settings")

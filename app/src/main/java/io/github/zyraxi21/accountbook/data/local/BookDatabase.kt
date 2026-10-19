@@ -7,9 +7,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [ChannelEntity::class, MonthlyAssetEntity::class, ChannelBalanceEntity::class,
-        IncomeEntity::class, SmsImportReceiptEntity::class, PendingSmsIncomeEntity::class,
+        IncomeEntity::class, SmsImportReceiptEntity::class, SmsIncomeRecordEntity::class,
         AppSettingsEntity::class, RememberedChannelEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class BookDatabase : RoomDatabase() {
@@ -55,5 +55,18 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         db.execSQL("ALTER TABLE app_settings ADD COLUMN lastSmsScanAtMillis INTEGER")
         db.execSQL("CREATE TABLE IF NOT EXISTS pending_sms_incomes (fingerprint TEXT NOT NULL, title TEXT NOT NULL, " +
             "amountFen INTEGER NOT NULL, receivedAtMillis INTEGER NOT NULL, PRIMARY KEY(fingerprint))")
+    }
+}
+
+/** 保留待确认明细与旧指纹；升级后完整补查一次，恢复仍在收件箱中的历史识别结果。 */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE TABLE sms_income_records (fingerprint TEXT NOT NULL, title TEXT NOT NULL, " +
+            "amountFen INTEGER NOT NULL, receivedAtMillis INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING', " +
+            "incomeId TEXT, PRIMARY KEY(fingerprint))")
+        db.execSQL("INSERT INTO sms_income_records (fingerprint, title, amountFen, receivedAtMillis) " +
+            "SELECT fingerprint, title, amountFen, receivedAtMillis FROM pending_sms_incomes")
+        db.execSQL("DROP TABLE pending_sms_incomes")
+        db.execSQL("UPDATE app_settings SET lastSmsScanAtMillis = NULL")
     }
 }

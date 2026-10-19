@@ -26,11 +26,12 @@ interface BookRepository {
     suspend fun setDifferenceUsesNet(enabled: Boolean)
     suspend fun importSms(parsed: ParsedIcbcIncome, requireAutoEnabled: Boolean = true): Boolean
     fun observePendingSmsIncomes(): Flow<List<ParsedIcbcIncome>>
-    /** 旧账本首次补查从最后一笔短信收入开始，以后使用成功保存的扫描进度。 */
+    fun observeSmsIncomeRecords(): Flow<List<SmsIncomeRecord>>
+    /** 首次补查恢复收件箱中的识别历史，以后使用成功保存的扫描进度。 */
     suspend fun smsScanSince(): Instant?
     suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant? = null)
-    /** 所选收入一次性入账或忽略；未选收入继续保留待确认。 */
-    suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): Int
+    /** 所选记录一次性入账或忽略；忽略后保留明细，显式再次入账时仍检查账本去重。 */
+    suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): SmsResolutionResult
 
     /** 记录一次成功导出的时间。 */
     suspend fun recordExport(exportedAt: Instant)

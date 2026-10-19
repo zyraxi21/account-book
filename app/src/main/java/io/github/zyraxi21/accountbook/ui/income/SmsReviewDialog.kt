@@ -31,7 +31,7 @@ import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 
 /** 待确认清单可逐笔选择；隐私隐藏时不创建包含短信信息的节点。 */
 @Composable
-fun SmsReviewDialog(review: SmsReviewState, hidden: Boolean, busy: Boolean, vm: BookViewModel) {
+fun SmsReviewDialog(review: SmsReviewState, hidden: Boolean, busy: Boolean, vm: BookViewModel, onHistory: () -> Unit = {}) {
     EditorDialog(stringResource(R.string.sms_review_title, review.incomes.size), busy, vm::dismissSmsReview,
         saveLabel = if (hidden) stringResource(R.string.sms_review_reveal) else stringResource(R.string.sms_review_import, review.selected.size),
         onSave = { if (hidden) vm.togglePrivacy() else vm.resolveSmsReview(import = true) },
@@ -58,6 +58,8 @@ fun SmsReviewDialog(review: SmsReviewState, hidden: Boolean, busy: Boolean, vm: 
                 style = ButtonStyle.OutlinedButton, enabled = !busy && review.selected.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
         }
+        Button(onClick = onHistory, text = stringResource(R.string.sms_history_view_all), style = ButtonStyle.TextButton,
+            enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
     }
 }
 

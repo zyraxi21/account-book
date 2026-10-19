@@ -112,8 +112,8 @@ class EncryptedBookRepositoryTest {
         database.close(); reopen()
         assertEquals(3, repository.observePendingSmsIncomes().first().size)
         assertEquals(now, repository.smsScanSince())
-        assertEquals(1, repository.resolveSmsIncomes(setOf(first.fingerprint), import = true))
-        assertEquals(1, repository.resolveSmsIncomes(setOf(second.fingerprint), import = false))
+        assertEquals(1, repository.resolveSmsIncomes(setOf(first.fingerprint), import = true).imported)
+        assertEquals(1, repository.resolveSmsIncomes(setOf(second.fingerprint), import = false).ignored)
         assertEquals(listOf(third), repository.observePendingSmsIncomes().first())
         assertEquals(first.title, book().incomes.single().title)
         repository.deleteIncome(book().incomes.single().id)
@@ -135,7 +135,7 @@ class EncryptedBookRepositoryTest {
         } catch (error: BookException) { assertEquals(BookError.AMOUNT_OVERFLOW, error.error) }
         assertEquals(1, book().incomes.size)
         assertEquals(2, repository.observePendingSmsIncomes().first().size)
-        assertEquals(1, repository.resolveSmsIncomes(setOf(first.fingerprint), import = true))
+        assertEquals(1, repository.resolveSmsIncomes(setOf(first.fingerprint), import = true).imported)
         assertEquals(2, book().incomes.size)
     }
 
@@ -153,7 +153,7 @@ class EncryptedBookRepositoryTest {
         assertEquals(1, book().incomes.size)
     }
 
-    @Test fun firstScanStartsFromLastSmsIncomeAndDisabledStagingDoesNotAdvanceIt() = runBlocking {
+    @Test fun firstScanReadsAllHistoryAndOnlySuccessfulEnabledScansAdvanceTheCheckpoint() = runBlocking {
         assertNull(repository.smsScanSince())
         repository.saveIncome(Income("manual-future", "手动收入", Money(100), now.plusSeconds(3600)))
         assertNull(repository.smsScanSince())
@@ -161,7 +161,112 @@ class EncryptedBookRepositoryTest {
         assertNull(repository.smsScanSince())
         repository.setSmsAutoImport(true)
         assertTrue(repository.importSms(parsed()))
-        assertEquals(parsed().receivedAt, repository.smsScanSince())
+        assertNull(repository.smsScanSince())
+        repository.stageSmsIncomes(listOf(parsed()), now)
+        assertEquals(now, repository.smsScanSince())
+    }
+
+    @Test fun smsMatchesManualIncomeByTitleAmountAndShanghaiDateRegardlessOfClockTime() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val sms = parsed()
+        val manual = Income("existing-manual", "  ${sms.title}  ", sms.amount, Instant.parse("2026-10-05T16:00:00Z"))
+        repository.saveIncome(manual)
+        repository.stageSmsIncomes(listOf(sms), now)
+        assertTrue(repository.observePendingSmsIncomes().first().isEmpty())
+        val record = repository.observeSmsIncomeRecords().first().single()
+        assertEquals(SmsIncomeStatus.MATCHED, record.status)
+        assertEquals(manual.id, record.incomeId)
+        assertEquals(listOf(manual.copy(title = sms.title)), book().incomes)
+        assertFalse(repository.importSms(sms))
+        try {
+            repository.saveIncome(manual.copy(id = "paste", source = IncomeSource.SMS), sms.copy(fingerprint = "different-paste").fingerprint)
+            fail("粘贴识别也应与手动收入去重")
+        } catch (error: BookException) { assertEquals(BookError.SMS_DUPLICATE, error.error) }
+        database.close(); reopen()
+        assertEquals(record, repository.observeSmsIncomeRecords().first().single())
+        assertEquals(1, book().incomes.size)
+    }
+
+    @Test fun changedTitleAmountOrShanghaiDayDoesNotMatch() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val sms = parsed().copy(receivedAt = Instant.parse("2026-10-05T16:00:00Z"))
+        repository.saveIncome(Income("baseline", sms.title, sms.amount, sms.receivedAt))
+        val distinct = listOf(sms.copy(title = "不同项目", fingerprint = "other-title"),
+            sms.copy(amount = Money(sms.amount.fen + 1), fingerprint = "other-amount"),
+            sms.copy(receivedAt = sms.receivedAt.minusMillis(1), fingerprint = "previous-shanghai-day"))
+        repository.stageSmsIncomes(distinct, now)
+        assertEquals(distinct.toSet(), repository.observePendingSmsIncomes().first().toSet())
+        assertEquals(3, repository.resolveSmsIncomes(distinct.map { it.fingerprint }.toSet(), import = true).imported)
+        assertEquals(4, book().incomes.size)
+    }
+
+    @Test fun manualSaveAndBackupImportReconcileAlreadyPendingSms() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val first = parsed()
+        val second = first.copy(title = "备份中的收入", fingerprint = "from-backup")
+        repository.stageSmsIncomes(listOf(first, second), now)
+        repository.saveIncome(Income("saved-after-scan", first.title, first.amount, first.receivedAt.plusSeconds(3600)))
+        repository.importBook(BookData(incomes = listOf(Income("backup-income", second.title, second.amount,
+            second.receivedAt.minusSeconds(3600)))), ImportMode.MERGE)
+        assertTrue(repository.observePendingSmsIncomes().first().isEmpty())
+        assertEquals(setOf(SmsIncomeStatus.MATCHED), repository.observeSmsIncomeRecords().first().map { it.status }.toSet())
+        assertEquals(SmsResolutionResult(), repository.resolveSmsIncomes(setOf(first.fingerprint, second.fingerprint), import = true))
+        assertEquals(2, book().incomes.size)
+    }
+
+    @Test fun differentFingerprintsAndConcurrentDecisionsCannotDoubleCountTheSameIncome() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val first = parsed()
+        val second = first.copy(fingerprint = "different-card-or-balance", receivedAt = first.receivedAt.plusSeconds(60))
+        repository.stageSmsIncomes(listOf(first, second), now)
+        val results = coroutineScope {
+            listOf(first, second, first, second).map { sms -> async {
+                repository.resolveSmsIncomes(setOf(sms.fingerprint), import = true)
+            } }.awaitAll()
+        }
+        assertEquals(1, results.sumOf { it.imported })
+        assertEquals(1, book().incomes.size)
+        assertEquals(setOf(SmsIncomeStatus.IMPORTED, SmsIncomeStatus.MATCHED),
+            repository.observeSmsIncomeRecords().first().map { it.status }.toSet())
+        assertTrue(repository.observePendingSmsIncomes().first().isEmpty())
+    }
+
+    @Test fun ignoredHistorySurvivesRestartAndCanBeExplicitlyImportedEvenWithAutoDisabled() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val sms = parsed()
+        repository.stageSmsIncomes(listOf(sms), now)
+        assertEquals(SmsResolutionResult(ignored = 1), repository.resolveSmsIncomes(setOf(sms.fingerprint), import = false))
+        database.close(); reopen()
+        repository.stageSmsIncomes(listOf(sms), now.plusSeconds(1))
+        val ignored = repository.observeSmsIncomeRecords().first().single()
+        assertEquals(SmsIncomeStatus.IGNORED, ignored.status)
+        assertEquals(sms.title, ignored.title)
+        assertEquals(sms.amount, ignored.amount)
+        assertEquals(sms.receivedAt, ignored.receivedAt)
+        assertTrue(book().incomes.isEmpty())
+        assertTrue(repository.observePendingSmsIncomes().first().isEmpty())
+        repository.setSmsAutoImport(false)
+        assertEquals(1, repository.resolveSmsIncomes(setOf(sms.fingerprint), import = true).imported)
+        assertEquals(SmsIncomeStatus.IMPORTED, repository.observeSmsIncomeRecords().first().single().status)
+        assertEquals(SmsResolutionResult(), repository.resolveSmsIncomes(setOf(sms.fingerprint), import = true))
+        assertEquals(1, book().incomes.size)
+        repository.deleteIncome(book().incomes.single().id)
+        repository.setSmsAutoImport(true)
+        repository.stageSmsIncomes(listOf(sms), now.plusSeconds(2))
+        assertTrue(book().incomes.isEmpty())
+        assertTrue(repository.observePendingSmsIncomes().first().isEmpty())
+    }
+
+    @Test fun restoringIgnoredIncomeChecksManualEntriesCreatedAfterTheIgnoreDecision() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val sms = parsed()
+        repository.stageSmsIncomes(listOf(sms), now)
+        repository.resolveSmsIncomes(setOf(sms.fingerprint), import = false)
+        repository.saveIncome(Income("later-manual", sms.title, sms.amount, sms.receivedAt.plusSeconds(3600)))
+        assertEquals(SmsIncomeStatus.IGNORED, repository.observeSmsIncomeRecords().first().single().status)
+        assertEquals(SmsResolutionResult(matched = 1), repository.resolveSmsIncomes(setOf(sms.fingerprint), import = true))
+        assertEquals(SmsIncomeStatus.MATCHED, repository.observeSmsIncomeRecords().first().single().status)
+        assertEquals("later-manual", book().incomes.single().id)
     }
 
     @Test fun concurrentImportAndAssetRegistrationAreAtomic() = runBlocking {
@@ -197,10 +302,14 @@ class EncryptedBookRepositoryTest {
     @Test fun databaseAndSidecarsContainNoKnownPlaintextAndFrameworkSqliteCannotRead() = runBlocking {
         repository.addChannel("加密渠道验证")
         repository.saveIncome(Income("encryption-test", "加密收入验证项目", Money(12345), now))
+        repository.setSmsAutoImport(true)
+        val sms = parsed().copy(title = "忽略短信加密验证")
+        repository.stageSmsIncomes(listOf(sms), now)
+        repository.resolveSmsIncomes(setOf(sms.fingerprint), import = false)
         assertEquals("加密收入验证项目", book().incomes.single().title)
         val databaseFile = File(directory, "accountbook.db")
         assertFalse(databaseFile.readBytes().take(16).toByteArray().toString(Charsets.US_ASCII).startsWith("SQLite format 3"))
-        val markers = listOf("加密收入验证项目", "加密渠道验证").map { it.toByteArray().toString(Charsets.ISO_8859_1) }
+        val markers = listOf("加密收入验证项目", "加密渠道验证", sms.title).map { it.toByteArray().toString(Charsets.ISO_8859_1) }
         directory.listFiles().orEmpty().filter { it.isFile }.forEach { file ->
             val binary = file.readBytes().toString(Charsets.ISO_8859_1)
             markers.forEach { assertFalse("文件中不应出现账务明文", binary.contains(it)) }
@@ -395,7 +504,7 @@ class EncryptedBookRepositoryTest {
     }
 
     @Test fun allPreviousVersionsMigrateWithoutChangingFinancialData() = runBlocking {
-        for (version in listOf(5, 4, 3, 2, 1)) {
+        for (version in listOf(6, 5, 4, 3, 2, 1)) {
             repository.saveIncome(Income("migration-$version", "迁移保留验证", Money(123), now))
             repository.setSmsAutoImport(true)
             repository.setHideOnStartup(false)
@@ -408,33 +517,7 @@ class EncryptedBookRepositoryTest {
             repository.saveAsset(MonthlyAssetSnapshot(at,
                 listOf(ChannelBalance(bank.id, bank.name, Money(500))), Money(100)))
             val original = book()
-            database.close()
-            val password = DatabaseKeyStore(directory, alias).loadOrCreate(databaseExists = true)
-            try {
-                val factory = SupportOpenHelperFactory(password)
-                val config = SupportSQLiteOpenHelper.Configuration.builder(context)
-                    .name(File(directory, "accountbook.db").absolutePath)
-                    // 与 BookDatabase 的 version 保持一致，否则会被判定为降级。
-                    .callback(object : SupportSQLiteOpenHelper.Callback(6) {
-                        override fun onCreate(db: SupportSQLiteDatabase) = Unit
-                        override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
-                    }).build()
-                factory.create(config).use { helper ->
-                    val db = helper.writableDatabase
-                    // 逐列削回旧版本的表结构，让每个 MIGRATION 的 ALTER 都真正被执行到。
-                    val laterSettings = buildList {
-                        if (version < 2) add("lastExportAtMillis")
-                        if (version < 3) addAll(listOf("hideOnStartup", "allowScreenshots"))
-                        if (version < 4) add("useWanGrouping")
-                        if (version < 5) add("differenceUsesNet")
-                        if (version < 6) add("lastSmsScanAtMillis")
-                    }
-                    laterSettings.forEach { db.execSQL("ALTER TABLE app_settings DROP COLUMN $it") }
-                    if (version < 5) db.execSQL("ALTER TABLE monthly_assets DROP COLUMN receivableFen")
-                    db.execSQL("DROP TABLE pending_sms_incomes")
-                    db.execSQL("PRAGMA user_version = $version")
-                }
-            } finally { password.fill(0) }
+            restorePreviousSchema(version)
             reopen()
             val migrated = book()
             assertEquals(original.channels, migrated.channels)
@@ -452,6 +535,31 @@ class EncryptedBookRepositoryTest {
             assertTrue(repository.observePendingSmsIncomes().first().isEmpty())
             assertNull(database.bookDao().settings()!!.lastSmsScanAtMillis)
         }
+    }
+
+    @Test fun v6MigrationPreservesPendingAndReceiptsAndBackfillsLegacyHistoryWithoutRepeatingIt() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val pending = parsed()
+        val ignored = pending.copy(title = "旧版忽略", fingerprint = "legacy-ignored")
+        val imported = pending.copy(title = "旧版已入账", fingerprint = "legacy-imported")
+        repository.stageSmsIncomes(listOf(pending, ignored, imported), now)
+        repository.resolveSmsIncomes(setOf(ignored.fingerprint), import = false)
+        repository.resolveSmsIncomes(setOf(imported.fingerprint), import = true)
+        restorePreviousSchema(6)
+        reopen()
+        assertNull(repository.smsScanSince())
+        assertEquals(listOf(pending), repository.observePendingSmsIncomes().first())
+        repository.stageSmsIncomes(listOf(pending, ignored, imported), now.plusSeconds(1))
+        val records = repository.observeSmsIncomeRecords().first().associateBy { it.fingerprint }
+        assertEquals(SmsIncomeStatus.PENDING, records.getValue(pending.fingerprint).status)
+        assertEquals(SmsIncomeStatus.PROCESSED, records.getValue(ignored.fingerprint).status)
+        assertEquals(SmsIncomeStatus.MATCHED, records.getValue(imported.fingerprint).status)
+        assertEquals(1, book().incomes.size)
+        assertEquals(listOf(pending), repository.observePendingSmsIncomes().first())
+        assertEquals(1, repository.resolveSmsIncomes(setOf(ignored.fingerprint), import = true).imported)
+        database.close(); reopen()
+        assertEquals(2, book().incomes.size)
+        assertEquals(now.plusSeconds(1), repository.smsScanSince())
     }
 
     @Test fun amountGroupingPersistsAfterRestartAndReplacementKeepsTheDevicePreference() = runBlocking {
@@ -527,6 +635,39 @@ class EncryptedBookRepositoryTest {
     private fun reopen() {
         database = EncryptedDatabaseFactory.open(context, directory, alias)
         repository = EncryptedBookRepository({ database }, listOf("银行", "支付宝", "微信"))
+    }
+    /** 还原旧表结构，让迁移实际执行建表、拷贝与补列，而非仅调整版本号。 */
+    private fun restorePreviousSchema(version: Int) {
+        database.close()
+        val password = DatabaseKeyStore(directory, alias).loadOrCreate(databaseExists = true)
+        try {
+            val config = SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(File(directory, "accountbook.db").absolutePath)
+                .callback(object : SupportSQLiteOpenHelper.Callback(7) {
+                    override fun onCreate(db: SupportSQLiteDatabase) = Unit
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                }).build()
+            SupportOpenHelperFactory(password).create(config).use { helper ->
+                val db = helper.writableDatabase
+                val laterSettings = buildList {
+                    if (version < 2) add("lastExportAtMillis")
+                    if (version < 3) addAll(listOf("hideOnStartup", "allowScreenshots"))
+                    if (version < 4) add("useWanGrouping")
+                    if (version < 5) add("differenceUsesNet")
+                    if (version < 6) add("lastSmsScanAtMillis")
+                }
+                laterSettings.forEach { db.execSQL("ALTER TABLE app_settings DROP COLUMN $it") }
+                if (version < 5) db.execSQL("ALTER TABLE monthly_assets DROP COLUMN receivableFen")
+                if (version == 6) {
+                    db.execSQL("CREATE TABLE pending_sms_incomes (fingerprint TEXT NOT NULL, title TEXT NOT NULL, " +
+                        "amountFen INTEGER NOT NULL, receivedAtMillis INTEGER NOT NULL, PRIMARY KEY(fingerprint))")
+                    db.execSQL("INSERT INTO pending_sms_incomes SELECT fingerprint, title, amountFen, receivedAtMillis " +
+                        "FROM sms_income_records WHERE status = 'PENDING'")
+                }
+                db.execSQL("DROP TABLE sms_income_records")
+                db.execSQL("PRAGMA user_version = $version")
+            }
+        } finally { password.fill(0) }
     }
     private suspend fun book() = withTimeout(15_000) { repository.observeBook().first() }
     private fun parsed() = (IcbcSmsParser().parse("尾号1234卡10月6日12:34工商银行收入(工资)100.00元，余额5000.00元。【工商银行】", now) as SmsParseResult.Success).income

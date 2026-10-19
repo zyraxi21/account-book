@@ -48,6 +48,8 @@ import io.github.zyraxi21.accountbook.domain.Channel
 import io.github.zyraxi21.accountbook.domain.ImportMode
 import io.github.zyraxi21.accountbook.domain.Income
 import io.github.zyraxi21.accountbook.domain.MonthlyAssetSnapshot
+import io.github.zyraxi21.accountbook.domain.SmsIncomeRecord
+import io.github.zyraxi21.accountbook.domain.SmsResolutionResult
 import io.github.zyraxi21.accountbook.sms.IcbcSmsParser
 import io.github.zyraxi21.accountbook.sms.ParsedIcbcIncome
 import io.github.zyraxi21.accountbook.ui.BookViewModel
@@ -237,9 +239,10 @@ private object PreviewBookRepository : BookRepository {
     private val empty = BookData()
     override fun observeBook(): Flow<BookData> = MutableStateFlow(empty)
     override fun observePendingSmsIncomes(): Flow<List<ParsedIcbcIncome>> = MutableStateFlow(emptyList())
+    override fun observeSmsIncomeRecords(): Flow<List<SmsIncomeRecord>> = MutableStateFlow(emptyList())
     override suspend fun smsScanSince(): Instant? = null
     override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?) = Unit
-    override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean) = 0
+    override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean) = SmsResolutionResult()
     override suspend fun saveAsset(snapshot: MonthlyAssetSnapshot, originalMonth: YearMonth?) = Unit
     override suspend fun deleteAsset(month: YearMonth) = Unit
     override suspend fun saveIncome(income: Income, importFingerprint: String?) = Unit

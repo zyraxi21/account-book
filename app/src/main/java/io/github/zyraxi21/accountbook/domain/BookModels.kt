@@ -47,6 +47,23 @@ data class Income(
     val receivedAt: Instant,
     val source: IncomeSource = IncomeSource.MANUAL,
 )
+
+enum class SmsIncomeStatus { PENDING, IMPORTED, IGNORED, MATCHED, PROCESSED }
+
+/** 识别结果和处理状态均在本机加密保存；PROCESSED 表示旧版只留下了去重凭据。 */
+data class SmsIncomeRecord(
+    val fingerprint: String,
+    val title: String,
+    val amount: Money,
+    val receivedAt: Instant,
+    val status: SmsIncomeStatus,
+    val incomeId: String? = null,
+) {
+    val canImport: Boolean get() = status == SmsIncomeStatus.PENDING || status == SmsIncomeStatus.IGNORED || status == SmsIncomeStatus.PROCESSED
+}
+
+data class SmsResolutionResult(val imported: Int = 0, val ignored: Int = 0, val matched: Int = 0)
+
 data class BookSettings(
     val smsAutoImportEnabled: Boolean = false,
     /** 上一次成功登记的渠道顺序快照，兼容已有备份；当前登记界面使用启用渠道的排序。 */

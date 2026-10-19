@@ -4,6 +4,7 @@ import io.github.zyraxi21.accountbook.domain.*
 import io.github.zyraxi21.accountbook.sms.ParsedIcbcIncome
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import java.time.Instant
 import java.time.YearMonth
 import java.util.UUID
@@ -17,11 +18,15 @@ import java.util.UUID
 class ReadOnlyBookRepository(initial: BookData) : BookRepository {
     val data = MutableStateFlow(initial)
     val pendingSms = MutableStateFlow<List<ParsedIcbcIncome>>(emptyList())
+    val smsRecords = MutableStateFlow<List<SmsIncomeRecord>>(emptyList())
     override fun observeBook(): Flow<BookData> = data
     override fun observePendingSmsIncomes(): Flow<List<ParsedIcbcIncome>> = pendingSms
+    override fun observeSmsIncomeRecords(): Flow<List<SmsIncomeRecord>> = combine(pendingSms, smsRecords) { pending, records ->
+        records + pending.map { SmsIncomeRecord(it.fingerprint, it.title, it.amount, it.receivedAt, SmsIncomeStatus.PENDING) }
+    }
     override suspend fun smsScanSince(): Instant? = unsupported()
     override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?): Unit = unsupported()
-    override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): Int = unsupported()
+    override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): SmsResolutionResult = unsupported()
     override suspend fun saveAsset(snapshot: MonthlyAssetSnapshot, originalMonth: YearMonth?): Unit = unsupported()
     override suspend fun deleteAsset(month: YearMonth): Unit = unsupported()
     override suspend fun saveIncome(income: Income, importFingerprint: String?): Unit = unsupported()

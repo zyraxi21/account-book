@@ -10,6 +10,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -30,13 +31,22 @@ class SmsReviewViewModelTest {
     private var resolved = emptySet<String>()
     private var imported: Boolean? = null
     private var failWrite = false
+    private var matchExisting = false
     private val repository = object : BookRepository by base {
-        override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): Int {
+        override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): SmsResolutionResult {
             if (failWrite) throw BookException(BookError.STORAGE_UNAVAILABLE)
             resolved = fingerprints
             imported = import
+            val records = base.observeSmsIncomeRecords().first().filter { it.fingerprint in fingerprints && it.canImport }
             base.pendingSms.value = base.pendingSms.value.filterNot { it.fingerprint in fingerprints }
-            return fingerprints.size
+            base.smsRecords.value = base.smsRecords.value.filterNot { it.fingerprint in fingerprints } + records.map {
+                it.copy(status = when { !import -> SmsIncomeStatus.IGNORED; matchExisting -> SmsIncomeStatus.MATCHED; else -> SmsIncomeStatus.IMPORTED })
+            }
+            return when {
+                !import -> SmsResolutionResult(ignored = records.size)
+                matchExisting -> SmsResolutionResult(matched = records.size)
+                else -> SmsResolutionResult(imported = records.size)
+            }
         }
     }
     private lateinit var vm: BookViewModel
@@ -97,6 +107,46 @@ class SmsReviewViewModelTest {
         assertEquals(original, vm.smsReview.value)
         assertFalse(vm.busy.value)
         assertEquals(R.string.error_storage, vm.message.value)
+    }
+
+    @Test fun ignoredRecordsRemainBrowsableAndCanBeRestoredAfterAutoImportIsDisabled() {
+        vm.togglePrivacy()
+        vm.resolveSmsRecord(first.fingerprint, import = false)
+        assertEquals(SmsIncomeStatus.IGNORED, vm.smsIncomeRecords.value.first { it.fingerprint == first.fingerprint }.status)
+        assertEquals(listOf(second), vm.smsReview.value.incomes)
+        base.data.value = base.data.value.copy(settings = base.data.value.settings.copy(smsAutoImportEnabled = false))
+        vm.resolveSmsRecord(first.fingerprint, import = true)
+        assertEquals(setOf(first.fingerprint), resolved)
+        assertEquals(true, imported)
+        assertEquals(SmsIncomeStatus.IMPORTED, vm.smsIncomeRecords.value.first { it.fingerprint == first.fingerprint }.status)
+        resolved = emptySet()
+        vm.resolveSmsRecord(first.fingerprint, import = true)
+        assertTrue(resolved.isEmpty())
+    }
+
+    @Test fun hiddenHistoryCannotBeChangedAndFailedRestorePreservesTheIgnoredRecord() {
+        base.pendingSms.value = emptyList()
+        base.smsRecords.value = listOf(SmsIncomeRecord(first.fingerprint, first.title, first.amount, first.receivedAt, SmsIncomeStatus.IGNORED))
+        vm.resolveSmsRecord(first.fingerprint, import = true)
+        assertTrue(resolved.isEmpty())
+        vm.togglePrivacy()
+        failWrite = true
+        val before = vm.smsIncomeRecords.value
+        vm.resolveSmsRecord(first.fingerprint, import = true)
+        assertEquals(before, vm.smsIncomeRecords.value)
+        assertEquals(R.string.error_storage, vm.message.value)
+    }
+
+    @Test fun restoredRecordMatchingLedgerReportsTheSkipAndCannotBeSubmittedAgain() {
+        vm.togglePrivacy()
+        vm.resolveSmsRecord(first.fingerprint, import = false)
+        matchExisting = true
+        vm.resolveSmsRecord(first.fingerprint, import = true)
+        assertEquals(R.string.sms_income_already_recorded, vm.message.value)
+        assertEquals(SmsIncomeStatus.MATCHED, vm.smsIncomeRecords.value.first { it.fingerprint == first.fingerprint }.status)
+        resolved = emptySet()
+        vm.resolveSmsRecord(first.fingerprint, import = true)
+        assertTrue(resolved.isEmpty())
     }
 
     @Test fun scanWaitsForSettingsAndDoesNotRepeatWhenLedgerDataChanges() {

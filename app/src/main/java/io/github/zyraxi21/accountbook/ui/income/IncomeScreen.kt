@@ -49,7 +49,7 @@ import kotlinx.coroutines.flow.filterNotNull
 fun IncomeScreen(data: BookData, month: YearMonth, currentMonth: YearMonth, hidden: Boolean, busy: Boolean,
                  onMonthSelected: (YearMonth) -> Unit,
                  onAdd: () -> Unit, onParse: () -> Unit,
-                 onEdit: (Income) -> Unit, onDelete: (Income) -> Unit) {
+                 onEdit: (Income) -> Unit, onDelete: (Income) -> Unit, onSmsHistory: () -> Unit = {}) {
     val pager = rememberPagerState(initialPage = pageOf(month, currentMonth)) { CURRENT_MONTH_PAGE + 1 }
     val selected = rememberUpdatedState(month)
     val selectMonth = rememberUpdatedState(onMonthSelected)
@@ -88,7 +88,11 @@ fun IncomeScreen(data: BookData, month: YearMonth, currentMonth: YearMonth, hidd
             // 静止区自行保留与滚动区的间距，列表不再自带顶部内边距。
             Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                SectionHeading(stringResource(R.string.income_title))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { SectionHeading(stringResource(R.string.income_title)) }
+                    Button(onClick = onSmsHistory, text = stringResource(R.string.sms_history_title),
+                        style = ButtonStyle.TextButton, modifier = Modifier.heightIn(min = 48.dp))
+                }
                 MonthNavigation(displayedMonth,
                     onPrevious = { navigateTo((request?.page ?: pager.currentPage) - 1) },
                     onNext = { navigateTo((request?.page ?: pager.currentPage) + 1) },

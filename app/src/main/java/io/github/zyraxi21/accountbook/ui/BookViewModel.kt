@@ -104,6 +104,8 @@ class BookViewModel(
     val smsText = _smsText.asStateFlow()
     private val _smsReview = MutableStateFlow(SmsReviewState())
     val smsReview = _smsReview.asStateFlow()
+    private val _smsIncomeRecords = MutableStateFlow<List<SmsIncomeRecord>>(emptyList())
+    val smsIncomeRecords = _smsIncomeRecords.asStateFlow()
     private val _smsScanState = MutableStateFlow<SmsScanUiState>(SmsScanUiState.Idle)
     val smsScanState = _smsScanState.asStateFlow()
     private var deferredSms = emptySet<String>()
@@ -152,16 +154,18 @@ class BookViewModel(
         updatePrivacyVisibility()
         observation = viewModelScope.launch {
             try {
-                combine(repository.observeBook(), repository.observePendingSmsIncomes()) { data, pending -> data to pending }
-                    .collect { (data, pending) ->
+                combine(repository.observeBook(), repository.observeSmsIncomeRecords()) { data, records -> data to records }
+                    .collect { (data, records) ->
                         val wasSmsEnabled = _state.value.data.settings.smsAutoImportEnabled
                         if (!privacyInitialized) {
                             if (!privacyTouched) userPrivacyHidden = data.settings.hideOnStartup
                             privacyInitialized = true
                         }
                         _state.value = BookUiState(loading = false, data = data)
+                        _smsIncomeRecords.value = records
                         refreshDraftChannels(data)
-                        refreshSmsReview(pending)
+                        refreshSmsReview(records.filter { it.status == SmsIncomeStatus.PENDING }
+                            .map { ParsedIcbcIncome(it.title, it.amount, it.receivedAt, it.fingerprint) })
                         updatePrivacyVisibility()
                         if (!wasSmsEnabled && data.settings.smsAutoImportEnabled) smsScanRequested = true
                         launchRequestedSmsScan()
@@ -274,14 +278,32 @@ class BookViewModel(
         if (!allowEdit()) return
         val review = _smsReview.value
         if (review.selected.isEmpty()) return
-        perform(if (import) R.string.sms_review_imported else R.string.sms_review_ignored) {
-            repository.resolveSmsIncomes(review.selected, import)
+        perform(null) {
+            val result = repository.resolveSmsIncomes(review.selected, import)
+            _message.value = smsResolutionMessage(result, import)
             deferredSms = deferredSms + review.incomes.map { it.fingerprint }
             val current = _smsReview.value
             _smsReview.value = current.copy(incomes = current.incomes.filterNot { it.fingerprint in review.selected },
                 selected = current.selected - review.selected,
                 visible = current.incomes.any { it.fingerprint !in deferredSms })
         }
+    }
+
+    fun resolveSmsRecord(fingerprint: String, import: Boolean) {
+        if (!allowEdit()) return
+        val record = _smsIncomeRecords.value.firstOrNull { it.fingerprint == fingerprint } ?: return
+        if ((import && !record.canImport) || (!import && record.status != SmsIncomeStatus.PENDING)) return
+        perform(null) {
+            val result = repository.resolveSmsIncomes(setOf(fingerprint), import)
+            _message.value = smsResolutionMessage(result, import)
+        }
+    }
+
+    private fun smsResolutionMessage(result: SmsResolutionResult, import: Boolean): Int = when {
+        !import -> R.string.sms_review_ignored
+        result.imported == 0 && result.matched > 0 -> R.string.sms_income_already_recorded
+        result.matched > 0 -> R.string.sms_review_imported_with_matches
+        else -> R.string.sms_review_imported
     }
 
     private fun updatePrivacyVisibility() {
@@ -662,7 +684,7 @@ class BookViewModel(
         _message.value = null
         _importSummary.value = null
         viewModelScope.launch {
-            try { action(); _message.value = successMessage
+            try { action(); if (successMessage != null) _message.value = successMessage
             } catch (error: CancellationException) { throw error
             } catch (error: Exception) {
                 _message.value = (error as? BookException)?.error?.resource() ?: R.string.error_storage

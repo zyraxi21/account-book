@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -43,6 +44,7 @@ import io.github.zyraxi21.accountbook.ui.income.IncomeEditor
 import io.github.zyraxi21.accountbook.ui.income.IncomeScreen
 import io.github.zyraxi21.accountbook.ui.income.SmsInputEditor
 import io.github.zyraxi21.accountbook.ui.income.SmsReviewDialog
+import io.github.zyraxi21.accountbook.ui.income.SmsHistoryScreen
 import io.github.zyraxi21.accountbook.ui.settings.ChannelEditor
 import io.github.zyraxi21.accountbook.ui.settings.SettingsScreen
 import io.github.zyraxi21.accountbook.ui.settings.AboutScreen
@@ -64,6 +66,7 @@ fun BookApp(vm: BookViewModel) {
     val channelDraft by vm.channelDraft.collectAsStateWithLifecycle()
     val smsText by vm.smsText.collectAsStateWithLifecycle()
     val smsReview by vm.smsReview.collectAsStateWithLifecycle()
+    val smsRecords by vm.smsIncomeRecords.collectAsStateWithLifecycle()
     val smsScanState by vm.smsScanState.collectAsStateWithLifecycle()
     val transferTask by vm.transferTask.collectAsStateWithLifecycle()
     val transferBusy by vm.transferBusy.collectAsStateWithLifecycle()
@@ -84,6 +87,8 @@ fun BookApp(vm: BookViewModel) {
     val keyboard = LocalSoftwareKeyboardController.current
     var tab by remember { mutableIntStateOf(0) }
     var aboutVisible by remember { mutableStateOf(false) }
+    var smsHistoryVisible by remember { mutableStateOf(false) }
+    var smsInfoVisible by remember { mutableStateOf(false) }
     var deleteAsset by remember { mutableStateOf<YearMonth?>(null) }
     var deleteIncome by remember { mutableStateOf<Income?>(null) }
     var smsPermission by remember { mutableStateOf(hasSmsReadPermission(context)) }
@@ -110,6 +115,8 @@ fun BookApp(vm: BookViewModel) {
             else -> permissionLauncher.launch(smsPermissions)
         }
     }
+    val openSmsHistory: () -> Unit = { vm.dismissSmsReview(); smsHistoryVisible = true }
+    BackHandler(enabled = smsHistoryVisible && !smsInfoVisible) { smsHistoryVisible = false }
     // 每个格式使用固定 MIME 的独立合约，避免重组尚未更新合约就启动旧格式选择器。
     val jsonLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(ExportFormat.JSON.mimeType), vm::completeExport)
     val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(ExportFormat.CSV.mimeType), vm::completeExport)
@@ -166,9 +173,10 @@ fun BookApp(vm: BookViewModel) {
         deleteAsset != null || deleteIncome != null)
     val smsReviewVisible = smsReview.visible && state.data.settings.smsAutoImportEnabled && !state.loading && state.storageError == null &&
         lifecycleState.isAtLeast(Lifecycle.State.RESUMED) && !aboutVisible && !updateDialogVisible && !chooseImportMode &&
-        !confirmReplace && !privateEditorVisible && !smsPermissionRationale && !transferBusy && transferTask == null
+        !confirmReplace && !privateEditorVisible && !smsPermissionRationale && !smsHistoryVisible && !smsInfoVisible &&
+        !transferBusy && transferTask == null
     val modalVisible = aboutVisible || updateDialogVisible || chooseImportMode || confirmReplace || privateEditorVisible ||
-        smsReviewVisible || smsPermissionRationale
+        smsReviewVisible || smsPermissionRationale || smsInfoVisible
     CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots,
         LocalUseWanGrouping provides state.data.settings.useWanGrouping) {
         Column(Modifier.fillMaxSize().background(palette.background), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -186,6 +194,11 @@ fun BookApp(vm: BookViewModel) {
                             BookText(stringResource(R.string.storage_error_hint), size = 14.sp, color = palette.secondary)
                             Button(onClick = vm::reload, text = stringResource(R.string.retry))
                         }
+                        smsHistoryVisible -> SmsHistoryScreen(smsRecords, hidden, busy, state.data.settings.smsAutoImportEnabled,
+                            smsScanState, onBack = { smsHistoryVisible = false }, onReveal = vm::togglePrivacy,
+                            onRecheck = { if (hasSmsReadPermission(context)) vm.recheckSmsInbox() else requestSmsPermission() },
+                            onInfo = { smsInfoVisible = true },
+                            onImport = { vm.resolveSmsRecord(it, import = true) }, onIgnore = { vm.resolveSmsRecord(it, import = false) })
                         tab == 0 -> AssetsScreen(state.data, month, hidden, busy,
                             vm::openAssets, { deleteAsset = it }, currentMonth = vm.thisMonth,
                             onMonthSelected = vm::selectMonth)
@@ -193,8 +206,8 @@ fun BookApp(vm: BookViewModel) {
                         tab == 1 -> IncomeScreen(state.data, month, vm.thisMonth, hidden, busy,
                             onMonthSelected = vm::selectMonth,
                             onAdd = { vm.openIncome() }, onParse = vm::openSmsInput,
-                            onEdit = { vm.openIncome(it) }, onDelete = { deleteIncome = it })
-                        else -> SettingsScreen(state.data, hidden, busy || transferBusy, smsPermission, transferEnabled = vm.transferAvailable && !hidden && state.storageError == null,
+                            onEdit = { vm.openIncome(it) }, onDelete = { deleteIncome = it }, onSmsHistory = openSmsHistory)
+                        else -> SettingsScreen(state.data, hidden, busy || transferBusy, transferEnabled = vm.transferAvailable && !hidden && state.storageError == null,
                             transferProgress = transferProgress,
                             onSmsChange = { enabled ->
                                 if (!enabled) { enableSmsAfterSettings = false; vm.setSmsEnabled(false) }
@@ -206,19 +219,13 @@ fun BookApp(vm: BookViewModel) {
                             onAllowScreenshots = vm::setAllowScreenshots, onUseWanGrouping = vm::setUseWanGrouping,
                             onDifferenceUsesNet = vm::setDifferenceUsesNet,
                             onAbout = { aboutVisible = true },
-                            pendingSmsCount = if (state.data.settings.smsAutoImportEnabled) smsReview.incomes.size else 0,
-                            onReviewSms = vm::openSmsReview, smsScanState = smsScanState,
-                            onRecheckSms = vm::recheckSmsInbox, onGrantSms = requestSmsPermission,
-                            showNotificationSmsHint = isXiaomiDevice(),
-                            onNotificationSmsSettings = {
-                                recheckSmsAfterSettings = true
-                                openAppPermissionSettings(context)
-                            })
+                            pendingSmsCount = smsReview.incomes.size, onSmsHistory = openSmsHistory,
+                            onSmsInfo = { smsInfoVisible = true })
                     }
                     if (!modalVisible) BookSnackbarHost(Modifier.align(Alignment.BottomCenter))
                 }
             }
-            BookBottomBar(selectedIndex = tab, onSelect = { aboutVisible = false; tab = it })
+            BookBottomBar(selectedIndex = tab, onSelect = { aboutVisible = false; smsHistoryVisible = false; smsInfoVisible = false; tab = it })
         }
         if (!hidden && state.storageError == null) {
             // 渠道删除确认在编辑弹窗内部切换内容，不再需要额外的弹窗状态，也不会顶掉编辑器。
@@ -237,7 +244,20 @@ fun BookApp(vm: BookViewModel) {
             deleteIncome?.let { income -> ConfirmDialog(stringResource(R.string.delete_record_title), stringResource(R.string.delete_income_hint), busy,
                 { deleteIncome = null }, { deleteIncome = null; vm.deleteIncome(income.id) }) }
         }
-        if (smsReviewVisible) SmsReviewDialog(smsReview, hidden, busy, vm)
+        if (smsReviewVisible) SmsReviewDialog(smsReview, hidden, busy, vm, onHistory = openSmsHistory)
+        if (smsInfoVisible) {
+            EditorDialog(stringResource(R.string.sms_permissions_title), busy = false, onClose = { smsInfoVisible = false },
+                saveLabel = stringResource(R.string.sms_system_permissions), cancelLabel = stringResource(R.string.close), onSave = {
+                    smsInfoVisible = false
+                    recheckSmsAfterSettings = true
+                    openAppPermissionSettings(context)
+                }) {
+                BookText(stringResource(R.string.sms_permission_hint), size = 14.sp)
+                BookText(stringResource(R.string.sms_history_local_hint), size = 13.sp, color = palette.secondary)
+                if (!smsPermission) BookText(stringResource(R.string.sms_unavailable), size = 13.sp)
+                if (isXiaomiDevice()) BookText(stringResource(R.string.sms_notification_permission_hint), size = 13.sp)
+            }
+        }
         if (smsPermissionRationale) {
             EditorDialog(stringResource(R.string.sms_permission_title), busy = false, onClose = { smsPermissionRationale = false },
                 saveLabel = stringResource(R.string.sms_permission_allow), onSave = {
