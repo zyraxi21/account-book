@@ -90,7 +90,10 @@ class EncryptedBookRepository(
         if (importFingerprint != null && dao.hasReceipt(importFingerprint)) throw BookException(BookError.SMS_DUPLICATE)
         val existing = dao.income(income.id)
         dao.saveIncome(income.copy(title = income.title.trim(), source = existing?.let { IncomeSource.valueOf(it.source) } ?: income.source).toEntity())
-        if (importFingerprint != null) dao.insertReceipt(SmsImportReceiptEntity(importFingerprint))
+        if (importFingerprint != null) {
+            dao.insertReceipt(SmsImportReceiptEntity(importFingerprint))
+            dao.deletePendingSmsIncome(importFingerprint)
+        }
     }
 
     override suspend fun deleteIncome(id: String) = write { it.deleteIncome(id) }
@@ -212,7 +215,49 @@ class EncryptedBookRepository(
         validateIncome(dao, income)
         dao.insertReceipt(SmsImportReceiptEntity(parsed.fingerprint))
         dao.saveIncome(income.toEntity())
+        dao.deletePendingSmsIncome(parsed.fingerprint)
         true
+    }
+
+    override fun observePendingSmsIncomes(): Flow<List<ParsedIcbcIncome>> = flow {
+        initialize()
+        emitAll(database.bookDao().observePendingSmsIncomes().map { rows -> rows.map {
+            ParsedIcbcIncome(it.title, Money(it.amountFen), Instant.ofEpochMilli(it.receivedAtMillis), it.fingerprint)
+        } })
+    }.flowOn(dispatcher)
+
+    override suspend fun smsScanSince(): Instant? = write { dao ->
+        (dao.settings()?.lastSmsScanAtMillis ?: dao.latestSmsIncomeAtMillis())?.let(Instant::ofEpochMilli)
+    }
+
+    override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?) = write { dao ->
+        val settings = dao.settings() ?: return@write
+        if (!settings.smsAutoImportEnabled) return@write
+        val pending = incomes.distinctBy { it.fingerprint }.filterNot { dao.hasReceipt(it.fingerprint) }.map {
+            if (it.title.isBlank() || it.title.length > 120) throw BookException(BookError.TITLE_REQUIRED)
+            if (it.amount.fen <= 0) throw BookException(BookError.INCOME_MUST_BE_POSITIVE)
+            PendingSmsIncomeEntity(it.fingerprint, it.title, it.amount.fen, it.receivedAt.toEpochMilli())
+        }
+        dao.insertPendingSmsIncomes(pending)
+        if (scannedThrough != null) dao.saveSettings(settings.copy(lastSmsScanAtMillis =
+            maxOf(settings.lastSmsScanAtMillis ?: Long.MIN_VALUE, scannedThrough.toEpochMilli())))
+    }
+
+    override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): Int = write { dao ->
+        val selected = dao.pendingSmsIncomes().filter { it.fingerprint in fingerprints }
+        for (pending in selected) {
+            if (!dao.hasReceipt(pending.fingerprint)) {
+                if (import) {
+                    val income = Income(UUID.randomUUID().toString(), pending.title, Money(pending.amountFen),
+                        Instant.ofEpochMilli(pending.receivedAtMillis), IncomeSource.SMS)
+                    validateIncome(dao, income)
+                    dao.saveIncome(income.toEntity())
+                }
+                dao.insertReceipt(SmsImportReceiptEntity(pending.fingerprint))
+            }
+            dao.deletePendingSmsIncome(pending.fingerprint)
+        }
+        selected.size
     }
 
     private suspend fun validateIncome(dao: BookDao, income: Income) {

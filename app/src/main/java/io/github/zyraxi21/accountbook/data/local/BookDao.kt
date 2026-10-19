@@ -2,9 +2,11 @@ package io.github.zyraxi21.accountbook.data.local
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface BookDao {
@@ -33,6 +35,21 @@ interface BookDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM sms_import_receipts WHERE fingerprint = :fingerprint)")
     suspend fun hasReceipt(fingerprint: String): Boolean
+
+    @Query("SELECT * FROM pending_sms_incomes ORDER BY receivedAtMillis, fingerprint")
+    fun observePendingSmsIncomes(): Flow<List<PendingSmsIncomeEntity>>
+
+    @Query("SELECT * FROM pending_sms_incomes ORDER BY receivedAtMillis, fingerprint")
+    suspend fun pendingSmsIncomes(): List<PendingSmsIncomeEntity>
+
+    @Query("SELECT MAX(receivedAtMillis) FROM incomes WHERE source = 'SMS'")
+    suspend fun latestSmsIncomeAtMillis(): Long?
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPendingSmsIncomes(incomes: List<PendingSmsIncomeEntity>)
+
+    @Query("DELETE FROM pending_sms_incomes WHERE fingerprint = :fingerprint")
+    suspend fun deletePendingSmsIncome(fingerprint: String)
 
     @Insert suspend fun insertChannels(channels: List<ChannelEntity>)
     @Upsert suspend fun saveChannel(channel: ChannelEntity)

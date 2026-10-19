@@ -70,7 +70,7 @@ XML 文件负责 Android Manifest、统一文案 `strings.xml`、主题、矢量
 
 ## 本地加密与数据生命周期
 
-Room 2.8.5 通过 SQLCipher 4.19.1 的 `SupportOpenHelperFactory` 打开加密数据库。资产、渠道、收入、短信去重凭据、自动登记开关和渠道记忆都保存于该数据库，没有明文账务偏好文件。
+Room 2.8.5 通过 SQLCipher 4.19.1 的 `SupportOpenHelperFactory` 打开加密数据库。资产、渠道、收入、短信去重凭据、待确认清单、扫描进度、短信识别开关和渠道记忆都保存于该数据库，没有明文账务偏好文件。v6 在 v5 上新增待确认表及扫描时间列，通过增量迁移保留已有账务。
 
 首次使用生成 32 字节随机数据库口令，用 Android Keystore 中的 AES-256-GCM 密钥封装后通过 `AtomicFile` 保存；封装文件经过校验后才用于创建数据库。密钥不硬编码，账务和短信正文不写入日志。数据库、WAL 等旁路文件和密钥封装文件位于应用私有的 `noBackupFilesDir/ledger`。SQLCipher 日志关闭，未配置任何破坏性数据库迁移或自动清库逻辑。
 
@@ -92,9 +92,13 @@ Room 2.8.5 通过 SQLCipher 4.19.1 的 `SupportOpenHelperFactory` 打开加密�
 
 提取日期时间、项目和收入金额；余额仅用于校验和去重，不修改资产表。没有年份时，使用短信时间或粘贴时的当前时间，在本年及上一年中推断最近且不晚于参考时间五分钟的合法日期。粘贴历史短信时请核对年份，解析结果可在保存前修改。
 
-自动登记默认关闭。打开设置页中的“自动登记工行收入”，阅读用途说明并授予 `RECEIVE_SMS` 后，只处理来自 `95588`（含 `+86` 或 `0086` 前缀）的系统新短信广播，拼接分段正文并在后台事务内入账；不会扫描历史短信。短信指纹包含卡尾号、推断后的完整日期时间、规范化项目、收入和余额，数据库唯一凭据防止重复广播及重复粘贴。删除短信收入后仍保留凭据，同一条短信不会重新出现。
+自动识别默认关闭。打开设置页中的“自动识别工行收入”并授予 `READ_SMS` 后，应用在启动或返回前台时静默补查收件箱，只查询 `95588`（含 `+86` 或 `0086` 前缀）的短信。旧账本首次补查从最后一笔短信收入的日期开始；尚未登记过短信收入时检查现有工行短信。之后从上次成功扫描的时间继续，边界时刻采用包含查询，避免同一毫秒的多条短信遗漏。年份以每条短信的实际接收时间推断。
 
-`RECEIVE_SMS` 属于安装器必须放行的受限权限；普通运行时授权无法替代安装器的放行。权限被拒绝或安装器未放行时，设置页显示不可用状态，粘贴解析仍可使用。[Android 接收短信权限说明](https://developer.android.com/reference/android/Manifest.permission#RECEIVE_SMS)
+识别结果先进入加密的待确认清单，不直接增加收入。发现多条收入时，弹窗展示项目、金额及日期，默认全选，可逐笔选择后统一入账或忽略；未选项目和“稍后处理”的清单继续加密保存，下次启动仍可核对，也可从设置中的“核对待入账收入”入口重新打开。隐私隐藏时先显示不含账务明细的提示，点击“显示并核对”后才展示具体内容；后台不会弹出账务窗口。
+
+`RECEIVE_SMS` 用于在收到系统广播时补充待确认清单，拼接分段短信后仍需用户确认入账。广播被系统或厂商后台策略限制时，启动补查仍可找回已保存在收件箱中的短信。扫描进度与待确认条目在同一个加密事务中保存，读取或落库失败不会推进进度。短信指纹包含卡尾号、推断后的完整日期时间、规范化项目、收入和余额；广播、补查和粘贴共用去重凭据。已入账后删除，或选择忽略的短信，不会再次弹出。短信原文不会另行保存，待确认清单与扫描进度也不进入 JSON／CSV 账务备份。
+
+`READ_SMS` 和 `RECEIVE_SMS` 都属于安装器必须放行的受限权限；普通运行时授权无法替代安装器的放行。读取权限被拒绝或安装器未放行时，设置页显示不可用状态，粘贴解析仍可使用。开关反映用户保存的偏好，缺权限时仍可直接关闭。已开启旧版自动登记的用户，升级后需关闭再重新开启该开关，授予读取权限；应用不会在每次启动时自动弹权限框。[Android 读取短信权限说明](https://developer.android.com/reference/android/Manifest.permission#READ_SMS)、[接收短信权限说明](https://developer.android.com/reference/android/Manifest.permission#RECEIVE_SMS)
 
 自行安装时可用以下方式，先在设备开启 USB 调试，并将 SDK `platform-tools` 加入 PATH：
 
@@ -104,12 +108,13 @@ adb install -r .\app\build\outputs\apk\release\app-release.apk
 adb shell am start -n io.github.zyraxi21.accountbook/.MainActivity
 ```
 
-安装后至少启动一次，再在应用设置中开启并授权自动登记。ADB 默认安装流程会放行受限权限；请勿添加 `--restrict-permissions`，该选项会取消放行。如果系统安装器没有放行，可在保持原签名的前提下尝试上述 ADB 覆盖安装，厂商策略仍以实际设备为准。[Android 安装命令实现](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/services/core/java/com/android/server/pm/PackageManagerShellCommand.java)
+安装后至少启动一次，再在应用设置中开启并授权自动识别。ADB 默认安装流程会放行受限权限；请勿添加 `--restrict-permissions`，该选项会取消放行。如果系统安装器没有放行，可在保持原签名的前提下尝试上述 ADB 覆盖安装，厂商策略仍以实际设备为准。[Android 安装命令实现](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/services/core/java/com/android/server/pm/PackageManagerShellCommand.java)
 
 开发设备已由安装器放行时，也可显式授予运行时权限，再在应用内开启开关：
 
 ```powershell
 adb shell pm grant io.github.zyraxi21.accountbook android.permission.RECEIVE_SMS
+adb shell pm grant io.github.zyraxi21.accountbook android.permission.READ_SMS
 ```
 
 该命令无法绕过安装器的限制。在系统设置中强行停止应用后，需要再次启动才能继续接收短信；应用不要求成为默认短信应用。

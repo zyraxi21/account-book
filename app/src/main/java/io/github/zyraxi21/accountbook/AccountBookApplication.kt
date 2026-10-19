@@ -11,6 +11,8 @@ import io.github.zyraxi21.accountbook.data.update.UpdateRepository
 import io.github.zyraxi21.accountbook.domain.AppVersion
 import io.github.zyraxi21.accountbook.domain.BookRepository
 import io.github.zyraxi21.accountbook.sms.IcbcSmsParser
+import io.github.zyraxi21.accountbook.sms.AndroidSmsInboxReader
+import io.github.zyraxi21.accountbook.sms.SmsInboxScanner
 
 class AccountBookApplication : Application() {
     val container by lazy { AppContainer(this) }
@@ -23,6 +25,7 @@ class AppContainer(application: Application) {
         defaultChannelNames = listOf(R.string.channel_bank, R.string.channel_alipay, R.string.channel_wechat).map(application::getString),
     )
     val smsParser = IcbcSmsParser()
+    val smsScanner = SmsInboxScanner(repository, AndroidSmsInboxReader(application), smsParser)
     val transfer = BookTransfer(application, repository)
 
     /**

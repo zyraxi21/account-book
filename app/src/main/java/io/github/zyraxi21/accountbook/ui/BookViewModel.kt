@@ -16,12 +16,15 @@ import io.github.zyraxi21.accountbook.data.update.UpdateRepository
 import io.github.zyraxi21.accountbook.data.update.UpdateResult
 import io.github.zyraxi21.accountbook.domain.*
 import io.github.zyraxi21.accountbook.sms.IcbcSmsParser
+import io.github.zyraxi21.accountbook.sms.ParsedIcbcIncome
+import io.github.zyraxi21.accountbook.sms.SmsInboxScanner
 import io.github.zyraxi21.accountbook.sms.SmsParseResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.time.Clock
 import java.time.Instant
@@ -38,6 +41,9 @@ data class AssetDraft(val originalMonth: YearMonth?, val registeredAt: Instant, 
 data class IncomeDraft(val id: String, val title: String, val amount: String, val receivedAt: Instant,
                        val source: IncomeSource, val fingerprint: String? = null)
 data class ChannelDraft(val id: String? = null, val name: String = "")
+
+data class SmsReviewState(val incomes: List<ParsedIcbcIncome> = emptyList(),
+                          val selected: Set<String> = emptySet(), val visible: Boolean = false)
 
 /** 导入导出任务。界面只在同一时刻保留一个，避免重复打开系统文件选择器。 */
 sealed interface TransferTask {
@@ -72,6 +78,7 @@ class BookViewModel(
     private val updater: UpdateRepository? = null,
     private val downloader: ApkDownloader? = null,
     private val currentVersion: AppVersion? = null,
+    private val smsScanner: SmsInboxScanner? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(BookUiState())
     val state = _state.asStateFlow()
@@ -87,6 +94,12 @@ class BookViewModel(
     val channelDraft = _channelDraft.asStateFlow()
     private val _smsText = MutableStateFlow<String?>(null)
     val smsText = _smsText.asStateFlow()
+    private val _smsReview = MutableStateFlow(SmsReviewState())
+    val smsReview = _smsReview.asStateFlow()
+    private var deferredSms = emptySet<String>()
+    private var smsScanRequested = false
+    private var smsForeground = false
+    private var smsScanJob: Job? = null
     private val _busy = MutableStateFlow(false)
     val busy = _busy.asStateFlow()
     private val _message = MutableStateFlow<Int?>(null)
@@ -128,15 +141,20 @@ class BookViewModel(
         updatePrivacyVisibility()
         observation = viewModelScope.launch {
             try {
-                repository.observeBook().collect {
-                    if (!privacyInitialized) {
-                        if (!privacyTouched) userPrivacyHidden = it.settings.hideOnStartup
-                        privacyInitialized = true
+                combine(repository.observeBook(), repository.observePendingSmsIncomes()) { data, pending -> data to pending }
+                    .collect { (data, pending) ->
+                        val wasSmsEnabled = _state.value.data.settings.smsAutoImportEnabled
+                        if (!privacyInitialized) {
+                            if (!privacyTouched) userPrivacyHidden = data.settings.hideOnStartup
+                            privacyInitialized = true
+                        }
+                        _state.value = BookUiState(loading = false, data = data)
+                        refreshDraftChannels(data)
+                        refreshSmsReview(pending)
+                        updatePrivacyVisibility()
+                        if (!wasSmsEnabled && data.settings.smsAutoImportEnabled) smsScanRequested = true
+                        launchRequestedSmsScan()
                     }
-                    _state.value = BookUiState(loading = false, data = it)
-                    refreshDraftChannels(it)
-                    updatePrivacyVisibility()
-                }
             } catch (error: CancellationException) { throw error
             } catch (error: Exception) {
                 _state.value = _state.value.copy(loading = false, storageError = (error as? BookException)?.error ?: BookError.STORAGE_UNAVAILABLE)
@@ -160,6 +178,7 @@ class BookViewModel(
 
     /** 暂停时立即遮挡界面，但不改写用户通过隐私按钮作出的选择。 */
     fun obscureInBackground() {
+        smsForeground = false
         backgroundObscured = true
         updatePrivacyVisibility()
         dismissMessage()
@@ -169,12 +188,73 @@ class BookViewModel(
     fun onBackgroundStopped() { returningFromBackground = true }
 
     fun onForeground() {
+        smsForeground = true
         if (returningFromBackground && privacyInitialized && _state.value.data.settings.hideOnStartup) {
             userPrivacyHidden = true
         }
         returningFromBackground = false
         backgroundObscured = false
         updatePrivacyVisibility()
+        smsScanRequested = true
+        launchRequestedSmsScan()
+    }
+
+    /** 初始化完成、授权成功或返回前台时补查；普通账本刷新不会再次触发扫描。 */
+    private fun launchRequestedSmsScan() {
+        val scanner = smsScanner ?: return
+        if (!smsScanRequested || _state.value.loading || _state.value.storageError != null ||
+            !_state.value.data.settings.smsAutoImportEnabled || !smsForeground || smsScanJob?.isActive == true) return
+        smsScanRequested = false
+        smsScanJob = viewModelScope.launch {
+            try {
+                scanner.scan()
+            } catch (error: CancellationException) { throw error
+            } catch (_: SecurityException) {
+                // 授权可随时被收回；不弹权限框，不推进扫描进度。
+            } catch (_: Exception) {
+                // 静默补查失败后保留原进度，下次返回前台重试。
+            } finally {
+                smsScanJob = null
+                // 查询期间再次返回前台的请求，留到本次查询完成后执行。
+                launchRequestedSmsScan()
+            }
+        }
+    }
+
+    private fun refreshSmsReview(pending: List<ParsedIcbcIncome>) {
+        val current = _smsReview.value
+        val ids = pending.map { it.fingerprint }.toSet()
+        val added = ids - current.incomes.map { it.fingerprint }.toSet()
+        _smsReview.value = SmsReviewState(pending, (current.selected intersect ids) + added,
+            pending.any { it.fingerprint !in deferredSms })
+    }
+
+    fun openSmsReview() { deferredSms = emptySet(); _smsReview.value = _smsReview.value.copy(visible = _smsReview.value.incomes.isNotEmpty()) }
+    fun dismissSmsReview() {
+        if (_busy.value) return
+        deferredSms = deferredSms + _smsReview.value.incomes.map { it.fingerprint }
+        _smsReview.value = _smsReview.value.copy(visible = false)
+    }
+    fun selectSmsIncome(fingerprint: String, selected: Boolean) {
+        if (_privacyHidden.value || _busy.value || _smsReview.value.incomes.none { it.fingerprint == fingerprint }) return
+        _smsReview.value = _smsReview.value.let { it.copy(selected = if (selected) it.selected + fingerprint else it.selected - fingerprint) }
+    }
+    fun selectAllSmsIncomes(selected: Boolean) {
+        if (_privacyHidden.value || _busy.value) return
+        _smsReview.value = _smsReview.value.let { it.copy(selected = if (selected) it.incomes.map { income -> income.fingerprint }.toSet() else emptySet()) }
+    }
+    fun resolveSmsReview(import: Boolean) {
+        if (!allowEdit()) return
+        val review = _smsReview.value
+        if (review.selected.isEmpty()) return
+        perform(if (import) R.string.sms_review_imported else R.string.sms_review_ignored) {
+            repository.resolveSmsIncomes(review.selected, import)
+            deferredSms = deferredSms + review.incomes.map { it.fingerprint }
+            val current = _smsReview.value
+            _smsReview.value = current.copy(incomes = current.incomes.filterNot { it.fingerprint in review.selected },
+                selected = current.selected - review.selected,
+                visible = current.incomes.any { it.fingerprint !in deferredSms })
+        }
     }
 
     private fun updatePrivacyVisibility() {
@@ -310,7 +390,10 @@ class BookViewModel(
 
     /** 拖动排序只在松手时落库一次；不弹“已保存”，顺序变化本身就是反馈。 */
     fun commitChannelOrder(ids: List<String>) { if (allowEdit()) writeQuietly { repository.reorderChannels(ids) } }
-    fun setSmsEnabled(enabled: Boolean) { saveSetting { repository.setSmsAutoImport(enabled) } }
+    fun setSmsEnabled(enabled: Boolean) { saveSetting {
+        repository.setSmsAutoImport(enabled)
+        if (enabled) { smsScanRequested = true; launchRequestedSmsScan() }
+    } }
     fun setHideOnStartup(enabled: Boolean) { saveSetting { repository.setHideOnStartup(enabled) } }
     fun setAllowScreenshots(enabled: Boolean) { saveSetting { repository.setAllowScreenshots(enabled) } }
     fun setUseWanGrouping(enabled: Boolean) { saveSetting { repository.setUseWanGrouping(enabled) } }
@@ -567,12 +650,13 @@ class BookViewModel(
         private val updater: UpdateRepository? = null,
         private val downloader: ApkDownloader? = null,
         private val currentVersion: AppVersion? = null,
+        private val smsScanner: SmsInboxScanner? = null,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             require(modelClass.isAssignableFrom(BookViewModel::class.java))
             return BookViewModel(repository, parser, transfer = transfer, updater = updater,
-                downloader = downloader, currentVersion = currentVersion) as T
+                downloader = downloader, currentVersion = currentVersion, smsScanner = smsScanner) as T
         }
     }
 }

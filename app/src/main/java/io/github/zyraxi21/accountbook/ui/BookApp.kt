@@ -42,6 +42,7 @@ import io.github.zyraxi21.accountbook.ui.components.*
 import io.github.zyraxi21.accountbook.ui.income.IncomeEditor
 import io.github.zyraxi21.accountbook.ui.income.IncomeScreen
 import io.github.zyraxi21.accountbook.ui.income.SmsInputEditor
+import io.github.zyraxi21.accountbook.ui.income.SmsReviewDialog
 import io.github.zyraxi21.accountbook.ui.settings.ChannelEditor
 import io.github.zyraxi21.accountbook.ui.settings.SettingsScreen
 import io.github.zyraxi21.accountbook.ui.settings.AboutScreen
@@ -62,6 +63,7 @@ fun BookApp(vm: BookViewModel) {
     val incomeDraft by vm.incomeDraft.collectAsStateWithLifecycle()
     val channelDraft by vm.channelDraft.collectAsStateWithLifecycle()
     val smsText by vm.smsText.collectAsStateWithLifecycle()
+    val smsReview by vm.smsReview.collectAsStateWithLifecycle()
     val transferTask by vm.transferTask.collectAsStateWithLifecycle()
     val transferBusy by vm.transferBusy.collectAsStateWithLifecycle()
     val transferProgress by vm.transferProgress.collectAsStateWithLifecycle()
@@ -83,16 +85,19 @@ fun BookApp(vm: BookViewModel) {
     var aboutVisible by remember { mutableStateOf(false) }
     var deleteAsset by remember { mutableStateOf<YearMonth?>(null) }
     var deleteIncome by remember { mutableStateOf<Income?>(null) }
-    var smsPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED) }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        smsPermission = granted
+    var smsPermission by remember { mutableStateOf(hasSmsReadPermission(context)) }
+    var smsPermissionRationale by remember { mutableStateOf(false) }
+    var enableSmsAfterSettings by remember { mutableStateOf(false) }
+    val smsPermissions = remember { arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS) }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        smsPermission = hasSmsReadPermission(context)
         when {
-            granted -> vm.setSmsEnabled(true)
+            smsPermission -> { enableSmsAfterSettings = false; vm.setSmsEnabled(true) }
             // 系统仍会弹窗时只提示一句，下次点开关会再问；
             // 不再弹窗（选过“不再询问”或被设备策略禁止）才引导到应用权限设置页。
-            context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.RECEIVE_SMS) == true ->
+            context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.READ_SMS) == true ->
                 vm.notifyMessage(R.string.sms_grant_failed)
-            else -> openAppPermissionSettings(context)
+            else -> { enableSmsAfterSettings = true; openAppPermissionSettings(context) }
         }
     }
     // 每个格式使用固定 MIME 的独立合约，避免重组尚未更新合约就启动旧格式选择器。
@@ -115,7 +120,11 @@ fun BookApp(vm: BookViewModel) {
     DisposableEffect(lifecycle, context) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                smsPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED
+                smsPermission = hasSmsReadPermission(context)
+                if (enableSmsAfterSettings && smsPermission) {
+                    enableSmsAfterSettings = false
+                    vm.setSmsEnabled(true)
+                }
             }
         }
         lifecycle.addObserver(observer)
@@ -139,9 +148,13 @@ fun BookApp(vm: BookViewModel) {
         }
     }
     // About弹层自带提示宿主，因此打开时收起主界面宿主，避免同一条消息出现两次。
-    val modalVisible = aboutVisible || updateDialogVisible || chooseImportMode || confirmReplace ||
-        (!hidden && (assetDraft != null || incomeDraft != null || channelDraft != null || smsText != null ||
-            deleteAsset != null || deleteIncome != null))
+    val privateEditorVisible = !hidden && (assetDraft != null || incomeDraft != null || channelDraft != null || smsText != null ||
+        deleteAsset != null || deleteIncome != null)
+    val smsReviewVisible = smsReview.visible && state.data.settings.smsAutoImportEnabled && !state.loading && state.storageError == null &&
+        lifecycleState.isAtLeast(Lifecycle.State.RESUMED) && !aboutVisible && !updateDialogVisible && !chooseImportMode &&
+        !confirmReplace && !privateEditorVisible && !smsPermissionRationale && !transferBusy && transferTask == null
+    val modalVisible = aboutVisible || updateDialogVisible || chooseImportMode || confirmReplace || privateEditorVisible ||
+        smsReviewVisible || smsPermissionRationale
     CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots,
         LocalUseWanGrouping provides state.data.settings.useWanGrouping) {
         Column(Modifier.fillMaxSize().background(palette.background), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -170,11 +183,12 @@ fun BookApp(vm: BookViewModel) {
                         else -> SettingsScreen(state.data, hidden, busy || transferBusy, smsPermission, transferEnabled = vm.transferAvailable && !hidden && state.storageError == null,
                             transferProgress = transferProgress,
                             onSmsChange = { enabled ->
-                                // 开启时若还未授权，直接拉起系统权限弹窗，不再先弹一层解释。
                                 when {
-                                    !enabled -> vm.setSmsEnabled(false)
-                                    smsPermission -> vm.setSmsEnabled(true)
-                                    else -> permissionLauncher.launch(Manifest.permission.RECEIVE_SMS)
+                                    !enabled -> { enableSmsAfterSettings = false; vm.setSmsEnabled(false) }
+                                    hasSmsReadPermission(context) -> vm.setSmsEnabled(true)
+                                    context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.READ_SMS) == true ->
+                                        smsPermissionRationale = true
+                                    else -> permissionLauncher.launch(smsPermissions)
                                 }
                             },
                             onExportJson = { vm.startExport(ExportFormat.JSON) },
@@ -182,7 +196,9 @@ fun BookApp(vm: BookViewModel) {
                             onImport = vm::requestImport, onHideOnStartup = vm::setHideOnStartup,
                             onAllowScreenshots = vm::setAllowScreenshots, onUseWanGrouping = vm::setUseWanGrouping,
                             onDifferenceUsesNet = vm::setDifferenceUsesNet,
-                            onAbout = { aboutVisible = true })
+                            onAbout = { aboutVisible = true },
+                            pendingSmsCount = if (state.data.settings.smsAutoImportEnabled) smsReview.incomes.size else 0,
+                            onReviewSms = vm::openSmsReview)
                     }
                     if (!modalVisible) BookSnackbarHost(Modifier.align(Alignment.BottomCenter))
                 }
@@ -206,6 +222,14 @@ fun BookApp(vm: BookViewModel) {
             deleteIncome?.let { income -> ConfirmDialog(stringResource(R.string.delete_record_title), stringResource(R.string.delete_income_hint), busy,
                 { deleteIncome = null }, { deleteIncome = null; vm.deleteIncome(income.id) }) }
         }
+        if (smsReviewVisible) SmsReviewDialog(smsReview, hidden, busy, vm)
+        if (smsPermissionRationale) {
+            EditorDialog(stringResource(R.string.sms_permission_title), busy = false, onClose = { smsPermissionRationale = false },
+                saveLabel = stringResource(R.string.sms_permission_allow), onSave = {
+                    smsPermissionRationale = false
+                    permissionLauncher.launch(smsPermissions)
+                }) { BookText(stringResource(R.string.sms_permission_hint)) }
+        }
         if (chooseImportMode) {
             EditorDialog(stringResource(R.string.import_choose_title), busy = transferBusy, onClose = vm::cancelImport,
                 saveLabel = stringResource(R.string.import_merge_button), onSave = { vm.chooseImport(ImportMode.MERGE) }) {
@@ -227,6 +251,10 @@ fun BookApp(vm: BookViewModel) {
         if (updateDialogVisible) UpdateDialogs(updateState, vm, snackbarHost = !aboutVisible)
     }
 }
+
+/** 此值只用于当次检查，实际查询前由读取器再次确认授权。 */
+private fun hasSmsReadPermission(context: Context) = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) ==
+    PackageManager.PERMISSION_GRANTED
 
 /** 读取系统文件选择器返回的显示名，提供方不响应查询时退化为空串。 */
 private fun displayName(context: Context, uri: Uri?): String {

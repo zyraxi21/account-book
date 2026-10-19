@@ -28,9 +28,9 @@ class IcbcSmsReceiver : BroadcastReceiver() {
         val pending = goAsync()
         scope.launch {
             try {
-                withTimeout(8_000) { application.container.repository.importSms(result.income) }
+                withTimeout(8_000) { application.container.repository.stageSmsIncomes(listOf(result.income)) }
             } catch (_: Exception) {
-                // 入账失败不写入去重凭据，用户仍可通过粘贴短信再次登记。
+                // 暂存失败不消耗凭据，启动时仍可从收件箱补查。
             } finally {
                 pending.finish()
             }

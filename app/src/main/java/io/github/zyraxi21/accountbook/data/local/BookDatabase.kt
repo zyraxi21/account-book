@@ -7,8 +7,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [ChannelEntity::class, MonthlyAssetEntity::class, ChannelBalanceEntity::class,
-        IncomeEntity::class, SmsImportReceiptEntity::class, AppSettingsEntity::class, RememberedChannelEntity::class],
-    version = 5,
+        IncomeEntity::class, SmsImportReceiptEntity::class, PendingSmsIncomeEntity::class,
+        AppSettingsEntity::class, RememberedChannelEntity::class],
+    version = 6,
     exportSchema = true,
 )
 abstract class BookDatabase : RoomDatabase() {
@@ -45,5 +46,14 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE monthly_assets ADD COLUMN receivableFen INTEGER NOT NULL DEFAULT 0")
         db.execSQL("ALTER TABLE app_settings ADD COLUMN differenceUsesNet INTEGER NOT NULL DEFAULT 1")
+    }
+}
+
+/** 补查进度与待确认清单都留在加密库中，不改变已登记的收入。 */
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE app_settings ADD COLUMN lastSmsScanAtMillis INTEGER")
+        db.execSQL("CREATE TABLE IF NOT EXISTS pending_sms_incomes (fingerprint TEXT NOT NULL, title TEXT NOT NULL, " +
+            "amountFen INTEGER NOT NULL, receivedAtMillis INTEGER NOT NULL, PRIMARY KEY(fingerprint))")
     }
 }

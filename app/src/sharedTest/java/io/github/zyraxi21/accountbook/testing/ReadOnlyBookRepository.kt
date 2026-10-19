@@ -16,7 +16,12 @@ import java.util.UUID
  */
 class ReadOnlyBookRepository(initial: BookData) : BookRepository {
     val data = MutableStateFlow(initial)
+    val pendingSms = MutableStateFlow<List<ParsedIcbcIncome>>(emptyList())
     override fun observeBook(): Flow<BookData> = data
+    override fun observePendingSmsIncomes(): Flow<List<ParsedIcbcIncome>> = pendingSms
+    override suspend fun smsScanSince(): Instant? = unsupported()
+    override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?): Unit = unsupported()
+    override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): Int = unsupported()
     override suspend fun saveAsset(snapshot: MonthlyAssetSnapshot, originalMonth: YearMonth?): Unit = unsupported()
     override suspend fun deleteAsset(month: YearMonth): Unit = unsupported()
     override suspend fun saveIncome(income: Income, importFingerprint: String?): Unit = unsupported()

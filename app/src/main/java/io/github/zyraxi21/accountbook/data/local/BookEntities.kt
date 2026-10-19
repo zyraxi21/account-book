@@ -60,6 +60,15 @@ data class IncomeEntity(
 @Entity(tableName = "sms_import_receipts")
 data class SmsImportReceiptEntity(@PrimaryKey val fingerprint: String)
 
+/** 只保留核对所需字段；待确认收入与账本一起加密，不保存短信原文。 */
+@Entity(tableName = "pending_sms_incomes")
+data class PendingSmsIncomeEntity(
+    @PrimaryKey val fingerprint: String,
+    val title: String,
+    val amountFen: Long,
+    val receivedAtMillis: Long,
+)
+
 @Entity(tableName = "app_settings")
 data class AppSettingsEntity(
     @PrimaryKey val id: Int = 1,
@@ -71,6 +80,8 @@ data class AppSettingsEntity(
     @ColumnInfo(defaultValue = "0") val useWanGrouping: Boolean = false,
     /** 与上月差额的口径：1 表示按净资产，0 表示按总资产。 */
     @ColumnInfo(defaultValue = "1") val differenceUsesNet: Boolean = true,
+    /** 与待确认清单在同一事务中推进，查询失败时保持原值。 */
+    val lastSmsScanAtMillis: Long? = null,
 )
 
 @Entity(

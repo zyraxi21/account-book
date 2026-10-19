@@ -102,6 +102,68 @@ class EncryptedBookRepositoryTest {
         assertTrue(repository.importSms(parsed()))
     }
 
+    @Test fun pendingSmsBatchSurvivesRestartAndSelectedDecisionsAreDeduplicated() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val first = parsed()
+        val second = first.copy(title = "第二笔收入", fingerprint = "second-pending")
+        val third = first.copy(title = "稍后处理", fingerprint = "third-pending")
+        repository.stageSmsIncomes(listOf(first, second, third, first), now)
+        assertTrue(book().incomes.isEmpty())
+        database.close(); reopen()
+        assertEquals(3, repository.observePendingSmsIncomes().first().size)
+        assertEquals(now, repository.smsScanSince())
+        assertEquals(1, repository.resolveSmsIncomes(setOf(first.fingerprint), import = true))
+        assertEquals(1, repository.resolveSmsIncomes(setOf(second.fingerprint), import = false))
+        assertEquals(listOf(third), repository.observePendingSmsIncomes().first())
+        assertEquals(first.title, book().incomes.single().title)
+        repository.deleteIncome(book().incomes.single().id)
+        database.close(); reopen()
+        repository.stageSmsIncomes(listOf(first, second, third), now.plusSeconds(60))
+        assertEquals(listOf(third), repository.observePendingSmsIncomes().first())
+        assertTrue(book().incomes.isEmpty())
+    }
+
+    @Test fun failedSmsBatchRollsBackBothIncomeAndReceiptWrites() = runBlocking {
+        repository.setSmsAutoImport(true)
+        repository.saveIncome(Income("near-overflow", "已有收入", Money(Long.MAX_VALUE - 100), now))
+        val first = parsed().copy(amount = Money(60))
+        val second = first.copy(title = "第二笔", fingerprint = "overflow-second")
+        repository.stageSmsIncomes(listOf(first, second), now)
+        try {
+            repository.resolveSmsIncomes(setOf(first.fingerprint, second.fingerprint), import = true)
+            fail("累计金额溢出时整批回滚")
+        } catch (error: BookException) { assertEquals(BookError.AMOUNT_OVERFLOW, error.error) }
+        assertEquals(1, book().incomes.size)
+        assertEquals(2, repository.observePendingSmsIncomes().first().size)
+        assertEquals(1, repository.resolveSmsIncomes(setOf(first.fingerprint), import = true))
+        assertEquals(2, book().incomes.size)
+    }
+
+    @Test fun broadcastAndInboxScanStageOnlyOneCopyAndManualImportClearsThePendingItem() = runBlocking {
+        repository.setSmsAutoImport(true)
+        val sms = parsed()
+        coroutineScope {
+            List(8) { index -> async { repository.stageSmsIncomes(listOf(sms), if (index % 2 == 0) now else null) } }.awaitAll()
+        }
+        assertEquals(listOf(sms), repository.observePendingSmsIncomes().first())
+        repository.saveIncome(Income("pasted-same-sms", sms.title, sms.amount, sms.receivedAt, IncomeSource.SMS), sms.fingerprint)
+        assertTrue(repository.observePendingSmsIncomes().first().isEmpty())
+        repository.stageSmsIncomes(listOf(sms), now.plusSeconds(1))
+        assertTrue(repository.observePendingSmsIncomes().first().isEmpty())
+        assertEquals(1, book().incomes.size)
+    }
+
+    @Test fun firstScanStartsFromLastSmsIncomeAndDisabledStagingDoesNotAdvanceIt() = runBlocking {
+        assertNull(repository.smsScanSince())
+        repository.saveIncome(Income("manual-future", "手动收入", Money(100), now.plusSeconds(3600)))
+        assertNull(repository.smsScanSince())
+        repository.stageSmsIncomes(listOf(parsed()), now)
+        assertNull(repository.smsScanSince())
+        repository.setSmsAutoImport(true)
+        assertTrue(repository.importSms(parsed()))
+        assertEquals(parsed().receivedAt, repository.smsScanSince())
+    }
+
     @Test fun concurrentImportAndAssetRegistrationAreAtomic() = runBlocking {
         repository.setSmsAutoImport(true)
         val channel = book().activeChannels.first()
@@ -333,7 +395,7 @@ class EncryptedBookRepositoryTest {
     }
 
     @Test fun allPreviousVersionsMigrateWithoutChangingFinancialData() = runBlocking {
-        for (version in listOf(4, 3, 2, 1)) {
+        for (version in listOf(5, 4, 3, 2, 1)) {
             repository.saveIncome(Income("migration-$version", "迁移保留验证", Money(123), now))
             repository.setSmsAutoImport(true)
             repository.setHideOnStartup(false)
@@ -353,7 +415,7 @@ class EncryptedBookRepositoryTest {
                 val config = SupportSQLiteOpenHelper.Configuration.builder(context)
                     .name(File(directory, "accountbook.db").absolutePath)
                     // 与 BookDatabase 的 version 保持一致，否则会被判定为降级。
-                    .callback(object : SupportSQLiteOpenHelper.Callback(5) {
+                    .callback(object : SupportSQLiteOpenHelper.Callback(6) {
                         override fun onCreate(db: SupportSQLiteDatabase) = Unit
                         override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
                     }).build()
@@ -365,9 +427,11 @@ class EncryptedBookRepositoryTest {
                         if (version < 3) addAll(listOf("hideOnStartup", "allowScreenshots"))
                         if (version < 4) add("useWanGrouping")
                         if (version < 5) add("differenceUsesNet")
+                        if (version < 6) add("lastSmsScanAtMillis")
                     }
                     laterSettings.forEach { db.execSQL("ALTER TABLE app_settings DROP COLUMN $it") }
-                    db.execSQL("ALTER TABLE monthly_assets DROP COLUMN receivableFen")
+                    if (version < 5) db.execSQL("ALTER TABLE monthly_assets DROP COLUMN receivableFen")
+                    db.execSQL("DROP TABLE pending_sms_incomes")
                     db.execSQL("PRAGMA user_version = $version")
                 }
             } finally { password.fill(0) }
@@ -385,6 +449,8 @@ class EncryptedBookRepositoryTest {
             assertEquals("v$version 的债权默认值", Money.ZERO, migrated.snapshot(month)!!.receivable)
             assertTrue("v$version 的差额口径默认按净资产", migrated.settings.differenceUsesNet)
             assertTrue(migrated.settings.smsAutoImportEnabled)
+            assertTrue(repository.observePendingSmsIncomes().first().isEmpty())
+            assertNull(database.bookDao().settings()!!.lastSmsScanAtMillis)
         }
     }
 

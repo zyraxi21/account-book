@@ -39,16 +39,21 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
                    onSmsChange: (Boolean) -> Unit,
                    onExportJson: () -> Unit, onExportCsv: () -> Unit, onImport: () -> Unit,
                    onHideOnStartup: (Boolean) -> Unit, onAllowScreenshots: (Boolean) -> Unit,
-                   onUseWanGrouping: (Boolean) -> Unit, onDifferenceUsesNet: (Boolean) -> Unit, onAbout: () -> Unit) {
+                   onUseWanGrouping: (Boolean) -> Unit, onDifferenceUsesNet: (Boolean) -> Unit, onAbout: () -> Unit,
+                   pendingSmsCount: Int = 0, onReviewSms: () -> Unit = {}) {
     val palette = LocalBookPalette.current
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { SectionHeading(stringResource(R.string.tab_settings)) }
         item { LedgerCard {
             SettingToggle(stringResource(R.string.sms_auto_import), stringResource(R.string.sms_auto_hint),
-                data.settings.smsAutoImportEnabled && smsPermission, !busy, onSmsChange)
+                data.settings.smsAutoImportEnabled, !busy, onSmsChange)
             // 开关本身已经说明是否开启，只在缺权限时补一句原因。
             if (!smsPermission) {
                 BookText(stringResource(R.string.sms_unavailable), size = 13.sp, color = palette.brand)
+            }
+            if (pendingSmsCount > 0) {
+                Button(onClick = onReviewSms, text = stringResource(R.string.sms_review_pending, pendingSmsCount),
+                    style = ButtonStyle.OutlinedButton, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp))
             }
         } }
         item { LedgerCard {

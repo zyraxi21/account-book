@@ -236,6 +236,10 @@ private fun previewViewModel(): BookViewModel {
 private object PreviewBookRepository : BookRepository {
     private val empty = BookData()
     override fun observeBook(): Flow<BookData> = MutableStateFlow(empty)
+    override fun observePendingSmsIncomes(): Flow<List<ParsedIcbcIncome>> = MutableStateFlow(emptyList())
+    override suspend fun smsScanSince(): Instant? = null
+    override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?) = Unit
+    override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean) = 0
     override suspend fun saveAsset(snapshot: MonthlyAssetSnapshot, originalMonth: YearMonth?) = Unit
     override suspend fun deleteAsset(month: YearMonth) = Unit
     override suspend fun saveIncome(income: Income, importFingerprint: String?) = Unit
