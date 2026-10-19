@@ -46,10 +46,20 @@ interface BookDao {
 
     @Upsert suspend fun saveSmsIncomeRecord(record: SmsIncomeRecordEntity)
 
-    @Query("SELECT * FROM incomes WHERE title = :title AND amountFen = :amountFen " +
+    /** 关闭某张卡的导入时，只改动它尚未入账的记录。 */
+    @Query("UPDATE sms_income_records SET status = 'IGNORED' WHERE cardTail = :tail AND status = 'PENDING'")
+    suspend fun ignorePendingSmsForCard(tail: String)
+
+    @Query("SELECT * FROM sms_cards ORDER BY tail")
+    suspend fun smsCards(): List<SmsCardEntity>
+
+    @Upsert suspend fun saveSmsCards(cards: List<SmsCardEntity>)
+
+    /** 同一天、同金额的收入；项目名由仓库层按全角半角归一化后再比较。 */
+    @Query("SELECT * FROM incomes WHERE amountFen = :amountFen " +
         "AND receivedAtMillis >= :dayStart AND receivedAtMillis < :dayEnd " +
-        "AND (:exceptId IS NULL OR id != :exceptId) ORDER BY receivedAtMillis, id LIMIT 1")
-    suspend fun matchingIncome(title: String, amountFen: Long, dayStart: Long, dayEnd: Long, exceptId: String?): IncomeEntity?
+        "AND (:exceptId IS NULL OR id != :exceptId) ORDER BY receivedAtMillis, id")
+    suspend fun incomesOnDay(amountFen: Long, dayStart: Long, dayEnd: Long, exceptId: String?): List<IncomeEntity>
 
     @Insert suspend fun insertChannels(channels: List<ChannelEntity>)
     @Upsert suspend fun saveChannel(channel: ChannelEntity)

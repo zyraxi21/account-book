@@ -69,7 +69,13 @@ data class SmsIncomeRecordEntity(
     val receivedAtMillis: Long,
     @ColumnInfo(defaultValue = "'PENDING'") val status: String = "PENDING",
     val incomeId: String? = null,
+    /** 银行卡尾号，用于按卡筛选与排除；v8 之前的记录为空。 */
+    val cardTail: String? = null,
 )
+
+/** 短信里出现过的银行卡尾号与用户是否导入该卡的记录；新发现的卡默认导入。 */
+@Entity(tableName = "sms_cards")
+data class SmsCardEntity(@PrimaryKey val tail: String, @ColumnInfo(defaultValue = "1") val included: Boolean = true)
 
 @Entity(tableName = "app_settings")
 data class AppSettingsEntity(
@@ -84,6 +90,8 @@ data class AppSettingsEntity(
     @ColumnInfo(defaultValue = "1") val differenceUsesNet: Boolean = true,
     /** 与待确认清单在同一事务中推进，查询失败时保持原值。 */
     val lastSmsScanAtMillis: Long? = null,
+    /** 用户上次选择的卡尾号筛选；记录的卡不在列表里时回到全部。 */
+    val smsCardFilter: String? = null,
 )
 
 @Entity(

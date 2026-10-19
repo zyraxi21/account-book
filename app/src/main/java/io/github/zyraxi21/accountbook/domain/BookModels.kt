@@ -58,9 +58,14 @@ data class SmsIncomeRecord(
     val receivedAt: Instant,
     val status: SmsIncomeStatus,
     val incomeId: String? = null,
+    /** 银行卡尾号；v8 之前的记录为空。 */
+    val cardTail: String? = null,
 ) {
     val canImport: Boolean get() = status == SmsIncomeStatus.PENDING || status == SmsIncomeStatus.IGNORED || status == SmsIncomeStatus.PROCESSED
 }
+
+/** 短信里出现过的银行卡；[included] 关闭后该卡的记录默认记为忽略。 */
+data class SmsCard(val tail: String, val included: Boolean = true)
 
 data class SmsResolutionResult(val imported: Int = 0, val ignored: Int = 0, val matched: Int = 0)
 
@@ -76,6 +81,10 @@ data class BookSettings(
     val useWanGrouping: Boolean = false,
     /** 与上月差额的口径：`true` 按净资产计算，`false` 按总资产计算。 */
     val differenceUsesNet: Boolean = true,
+    /** 短信里出现过的银行卡，新发现的卡默认导入。 */
+    val smsCards: List<SmsCard> = emptyList(),
+    /** 识别记录页上次选中的卡尾号；`null` 表示全部。 */
+    val smsCardFilter: String? = null,
 )
 data class BookData(
     val channels: List<Channel> = emptyList(),

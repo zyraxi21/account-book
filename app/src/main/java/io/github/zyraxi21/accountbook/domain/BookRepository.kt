@@ -32,6 +32,10 @@ interface BookRepository {
     suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant? = null)
     /** 所选记录一次性入账或忽略；忽略后保留明细，显式再次入账时仍检查账本去重。 */
     suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): SmsResolutionResult
+    /** 开启或关闭某张银行卡的导入；关闭时该卡尚未入账的记录一次性转为忽略。 */
+    suspend fun setSmsCardIncluded(tail: String, included: Boolean)
+    /** 记录识别记录页上次选中的卡尾号，`null` 表示全部。 */
+    suspend fun setSmsCardFilter(tail: String?)
 
     /** 记录一次成功导出的时间。 */
     suspend fun recordExport(exportedAt: Instant)

@@ -27,6 +27,13 @@ class ReadOnlyBookRepository(initial: BookData) : BookRepository {
     override suspend fun smsScanSince(): Instant? = unsupported()
     override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?): Unit = unsupported()
     override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): SmsResolutionResult = unsupported()
+    override suspend fun setSmsCardIncluded(tail: String, included: Boolean) {
+        data.value = data.value.copy(settings = data.value.settings.copy(
+            smsCards = data.value.settings.smsCards.map { if (it.tail == tail) it.copy(included = included) else it }))
+    }
+    override suspend fun setSmsCardFilter(tail: String?) {
+        data.value = data.value.copy(settings = data.value.settings.copy(smsCardFilter = tail))
+    }
     override suspend fun saveAsset(snapshot: MonthlyAssetSnapshot, originalMonth: YearMonth?): Unit = unsupported()
     override suspend fun deleteAsset(month: YearMonth): Unit = unsupported()
     override suspend fun saveIncome(income: Income, importFingerprint: String?): Unit = unsupported()

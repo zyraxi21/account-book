@@ -4,6 +4,7 @@ import io.github.zyraxi21.accountbook.domain.BOOK_ZONE
 import io.github.zyraxi21.accountbook.domain.BookError
 import io.github.zyraxi21.accountbook.domain.BookException
 import io.github.zyraxi21.accountbook.domain.Money
+import io.github.zyraxi21.accountbook.domain.normalizedIncomeTitle
 import java.security.MessageDigest
 import java.time.DateTimeException
 import java.time.Instant
@@ -15,6 +16,8 @@ data class ParsedIcbcIncome(
     val amount: Money,
     val receivedAt: Instant,
     val fingerprint: String,
+    /** 银行卡尾号，用于按卡筛选与排除。 */
+    val cardTail: String? = null,
 )
 sealed interface SmsParseResult {
     data class Success(val income: ParsedIcbcIncome) : SmsParseResult
@@ -36,8 +39,10 @@ class IcbcSmsParser {
         val normalized = punctuation.replace(Regex("\\s+"), "")
         val match = pattern.matchEntire(normalized) ?: return SmsParseResult.Failure(BookError.SMS_FORMAT)
         val (card, month, day, hour, minute, _, amountText, balanceText) = match.destructured
-        val title = Regex("工商银行\\s*收入\\s*\\(([^()]{1,120})\\)").find(punctuation)?.groupValues?.get(1)
-            ?.trim()?.replace(Regex("\\s+"), " ") ?: return SmsParseResult.Failure(BookError.SMS_FORMAT)
+        // 项目名从原始正文提取，保留短信里的全角符号；全角半角只在比对与指纹里抹平。
+        val title = Regex("工商银行\\s*收入\\s*[（(]([^（()）]{1,120})[）)]").find(body)
+            ?.groupValues?.get(1)?.trim()?.replace(Regex("\\s+"), " ")
+            ?: return SmsParseResult.Failure(BookError.SMS_FORMAT)
         if (!groupedAmount.matches(amountText) || !groupedAmount.matches(balanceText)) {
             return SmsParseResult.Failure(BookError.SMS_FORMAT)
         }
@@ -52,10 +57,12 @@ class IcbcSmsParser {
                 } catch (_: DateTimeException) { null }
             }.filter { it <= referenceTime.plusSeconds(300) }
             val receivedAt = candidates.maxOrNull() ?: return SmsParseResult.Failure(BookError.SMS_DATE)
-            val canonical = "$card|${receivedAt.atZone(zone).toLocalDateTime()}|$title|${amount.fen}|${balance.fen}"
+            // 指纹用归一化后的项目名：同一条短信即使重复投递时标点全角半角不同，也算同一笔。
+            val canonical = "$card|${receivedAt.atZone(zone).toLocalDateTime()}|" +
+                "${normalizedIncomeTitle(title)}|${amount.fen}|${balance.fen}"
             val fingerprint = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it.toInt() and 0xff) }
-            SmsParseResult.Success(ParsedIcbcIncome(title, amount, receivedAt, fingerprint))
+            SmsParseResult.Success(ParsedIcbcIncome(title, amount, receivedAt, fingerprint, card))
         } catch (error: BookException) {
             SmsParseResult.Failure(error.error)
         }

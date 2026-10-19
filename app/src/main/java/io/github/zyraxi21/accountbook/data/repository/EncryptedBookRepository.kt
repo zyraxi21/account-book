@@ -27,7 +27,8 @@ class EncryptedBookRepository(
     override fun observeBook(): Flow<BookData> = flow {
         initialize()
         emitAll(database.invalidationTracker.createFlow(
-            "channels", "monthly_assets", "channel_balances", "incomes", "app_settings", "remembered_channels", "sms_import_receipts",
+            "channels", "monthly_assets", "channel_balances", "incomes", "app_settings", "remembered_channels",
+            "sms_import_receipts", "sms_cards", "sms_income_records",
         ).map { database.withTransaction { readBook(database.bookDao()) } })
     }.flowOn(dispatcher)
 
@@ -229,7 +230,7 @@ class EncryptedBookRepository(
         database.withTransaction { reconcilePendingSms(database.bookDao()) }
         emitAll(database.bookDao().observeSmsIncomeRecords().map { rows -> rows.map {
             SmsIncomeRecord(it.fingerprint, it.title, Money(it.amountFen), Instant.ofEpochMilli(it.receivedAtMillis),
-                SmsIncomeStatus.valueOf(it.status), it.incomeId)
+                SmsIncomeStatus.valueOf(it.status), it.incomeId, it.cardTail)
         } })
     }.flowOn(dispatcher)
 
@@ -245,10 +246,26 @@ class EncryptedBookRepository(
     override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?) = write { dao ->
         val settings = dao.settings() ?: return@write
         if (!settings.smsAutoImportEnabled) return@write
-        incomes.distinctBy { it.fingerprint }.forEach { stageSmsRecord(dao, it) }
+        stageSmsCards(dao, incomes)
+        val excluded = dao.smsCards().filterNot { it.included }.map { it.tail }.toSet()
+        incomes.distinctBy { it.fingerprint }.forEach { stageSmsRecord(dao, it, excluded) }
         reconcilePendingSms(dao)
         if (scannedThrough != null) dao.saveSettings(settings.copy(lastSmsScanAtMillis =
             maxOf(settings.lastSmsScanAtMillis ?: Long.MIN_VALUE, scannedThrough.toEpochMilli())))
+    }
+
+    override suspend fun setSmsCardIncluded(tail: String, included: Boolean) = write { dao ->
+        // 卡列表由补查建立；直接操作列表里没有的卡时补上一条，不丢用户的选择。
+        val known = dao.smsCards().associateBy { it.tail }.toMutableMap()
+        known[tail] = SmsCardEntity(tail, included)
+        dao.saveSmsCards(known.values.toList())
+        // 关闭导入只影响尚未入账的记录，已入账的收入保持原样。
+        if (!included) dao.ignorePendingSmsForCard(tail)
+    }
+
+    override suspend fun setSmsCardFilter(tail: String?) = write { dao ->
+        val current = dao.settings() ?: AppSettingsEntity()
+        dao.saveSettings(current.copy(smsCardFilter = tail))
     }
 
     override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean): SmsResolutionResult = write { dao ->
@@ -269,16 +286,32 @@ class EncryptedBookRepository(
         SmsResolutionResult(imported, ignored, matched)
     }
 
-    private suspend fun stageSmsRecord(dao: BookDao, parsed: ParsedIcbcIncome): SmsIncomeRecordEntity {
+    /** 补查时顺便登记新出现的卡尾号，默认导入，不需要预先配置。 */
+    private suspend fun stageSmsCards(dao: BookDao, incomes: List<ParsedIcbcIncome>) {
+        val tails = incomes.mapNotNull { it.cardTail }.toSet()
+        if (tails.isEmpty()) return
+        val known = dao.smsCards().associateBy { it.tail }
+        val added = tails.filter { it !in known }.map { SmsCardEntity(it, included = true) }
+        if (added.isNotEmpty()) dao.saveSmsCards(added)
+    }
+
+    private suspend fun stageSmsRecord(dao: BookDao, parsed: ParsedIcbcIncome,
+                                       excludedCards: Set<String> = emptySet()): SmsIncomeRecordEntity {
         if (parsed.title.isBlank() || parsed.title.length > 120) throw BookException(BookError.TITLE_REQUIRED)
         if (parsed.amount.fen <= 0) throw BookException(BookError.INCOME_MUST_BE_POSITIVE)
         val existing = dao.smsIncomeRecord(parsed.fingerprint)
         if (existing != null && existing.status != SmsIncomeStatus.PENDING.name) return existing
-        val record = existing ?: SmsIncomeRecordEntity(parsed.fingerprint, parsed.title.trim(), parsed.amount.fen, parsed.receivedAt.toEpochMilli())
+        val record = existing ?: SmsIncomeRecordEntity(parsed.fingerprint, parsed.title.trim(), parsed.amount.fen,
+            parsed.receivedAt.toEpochMilli(), cardTail = parsed.cardTail)
         val match = matchingIncome(dao, record.title, record.amountFen, record.receivedAtMillis)
         return when {
             match != null -> finishSmsRecord(dao, record, SmsIncomeStatus.MATCHED, match.id)
             existing == null && dao.hasReceipt(record.fingerprint) -> finishSmsRecord(dao, record, SmsIncomeStatus.PROCESSED)
+            // 用户关掉导入的卡，整张卡的记录都不再进入待确认清单。
+            record.cardTail != null && record.cardTail in excludedCards ->
+                finishSmsRecord(dao, record, SmsIncomeStatus.IGNORED)
+            // 理财赎回、提现、银证转账到账的是自己的钱，默认记为忽略，仍可在识别记录里手动入账。
+            looksLikeNonIncome(record.title) -> finishSmsRecord(dao, record, SmsIncomeStatus.IGNORED)
             else -> record.also { dao.saveSmsIncomeRecord(it) }
         }
     }
@@ -317,9 +350,12 @@ class EncryptedBookRepository(
     private suspend fun matchingIncome(dao: BookDao, title: String, amountFen: Long, receivedAtMillis: Long,
                                        exceptId: String? = null): IncomeEntity? {
         val date = Instant.ofEpochMilli(receivedAtMillis).atZone(BOOK_ZONE).toLocalDate()
-        return dao.matchingIncome(title.trim(), amountFen,
+        // 项目名的全角半角标点、空白与大小写差异不算新的一笔，先归一化再比较。
+        val target = normalizedIncomeTitle(title)
+        return dao.incomesOnDay(amountFen,
             date.atStartOfDay(BOOK_ZONE).toInstant().toEpochMilli(),
             date.plusDays(1).atStartOfDay(BOOK_ZONE).toInstant().toEpochMilli(), exceptId)
+            .firstOrNull { normalizedIncomeTitle(it.title) == target }
     }
 
     private suspend fun validateIncome(dao: BookDao, income: Income) {
@@ -351,6 +387,8 @@ class EncryptedBookRepository(
             allowScreenshots = settings?.allowScreenshots ?: false,
             useWanGrouping = settings?.useWanGrouping ?: false,
             differenceUsesNet = settings?.differenceUsesNet ?: true,
+            smsCards = dao.smsCards().map { SmsCard(it.tail, it.included) },
+            smsCardFilter = settings?.smsCardFilter,
         ) },
     )
 

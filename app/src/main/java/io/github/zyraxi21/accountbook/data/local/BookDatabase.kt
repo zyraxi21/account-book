@@ -8,8 +8,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [ChannelEntity::class, MonthlyAssetEntity::class, ChannelBalanceEntity::class,
         IncomeEntity::class, SmsImportReceiptEntity::class, SmsIncomeRecordEntity::class,
-        AppSettingsEntity::class, RememberedChannelEntity::class],
-    version = 7,
+        SmsCardEntity::class, AppSettingsEntity::class, RememberedChannelEntity::class],
+    version = 8,
     exportSchema = true,
 )
 abstract class BookDatabase : RoomDatabase() {
@@ -68,5 +68,20 @@ val MIGRATION_6_7 = object : Migration(6, 7) {
             "SELECT fingerprint, title, amountFen, receivedAtMillis FROM pending_sms_incomes")
         db.execSQL("DROP TABLE pending_sms_incomes")
         db.execSQL("UPDATE app_settings SET lastSmsScanAtMillis = NULL")
+    }
+}
+
+/**
+ * v8 按银行卡尾号区分短信。
+ *
+ * 旧记录的尾号列留空（不可从已保存的指纹反推），由下一次补查从收件箱恢复；
+ * 卡列表同样从补查中逐步建立，因此不需要写死任何卡号。
+ */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE sms_income_records ADD COLUMN cardTail TEXT")
+        db.execSQL("CREATE TABLE IF NOT EXISTS sms_cards (tail TEXT NOT NULL, " +
+            "included INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(tail))")
+        db.execSQL("ALTER TABLE app_settings ADD COLUMN smsCardFilter TEXT")
     }
 }

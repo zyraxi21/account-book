@@ -243,6 +243,8 @@ private object PreviewBookRepository : BookRepository {
     override suspend fun smsScanSince(): Instant? = null
     override suspend fun stageSmsIncomes(incomes: List<ParsedIcbcIncome>, scannedThrough: Instant?) = Unit
     override suspend fun resolveSmsIncomes(fingerprints: Set<String>, import: Boolean) = SmsResolutionResult()
+    override suspend fun setSmsCardIncluded(tail: String, included: Boolean) = Unit
+    override suspend fun setSmsCardFilter(tail: String?) = Unit
     override suspend fun saveAsset(snapshot: MonthlyAssetSnapshot, originalMonth: YearMonth?) = Unit
     override suspend fun deleteAsset(month: YearMonth) = Unit
     override suspend fun saveIncome(income: Income, importFingerprint: String?) = Unit
