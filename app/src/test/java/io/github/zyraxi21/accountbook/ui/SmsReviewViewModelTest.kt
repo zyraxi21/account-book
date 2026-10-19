@@ -62,21 +62,21 @@ class SmsReviewViewModelTest {
     @Test fun startsWithAllSelectedButCannotSubmitHiddenFinancialData() {
         assertTrue(vm.smsReview.value.visible)
         assertEquals(setOf("first", "second"), vm.smsReview.value.selected)
-        vm.resolveSmsReview(import = true)
+        vm.resolveSmsReview()
         assertTrue(resolved.isEmpty())
         assertEquals(2, vm.smsReview.value.incomes.size)
     }
 
-    @Test fun confirmsOnlyTheSelectedIncomeAndRetainsTheOtherForLater() {
+    @Test fun confirmsOnlyTheSelectedIncomeAndIgnoresTheRest() {
         vm.togglePrivacy()
         vm.selectSmsIncome("second", false)
-        vm.resolveSmsReview(import = true)
-        assertEquals(setOf("first"), resolved)
-        assertEquals(true, imported)
-        assertEquals(listOf(second), vm.smsReview.value.incomes)
+        vm.resolveSmsReview()
+        // 勾选的入账，未勾选的直接忽略，不再留在待确认里。
+        val records = vm.smsIncomeRecords.value.associateBy { it.fingerprint }
+        assertEquals(SmsIncomeStatus.IMPORTED, records.getValue("first").status)
+        assertEquals(SmsIncomeStatus.IGNORED, records.getValue("second").status)
+        assertTrue(vm.smsReview.value.incomes.isEmpty())
         assertFalse(vm.smsReview.value.visible)
-        vm.openSmsReview()
-        assertTrue(vm.smsReview.value.visible)
     }
 
     @Test fun dismissingDoesNotWriteAndOrdinaryBookRefreshDoesNotReopenTheDialog() {
@@ -103,7 +103,7 @@ class SmsReviewViewModelTest {
         vm.togglePrivacy()
         val original = vm.smsReview.value
         failWrite = true
-        vm.resolveSmsReview(import = true)
+        vm.resolveSmsReview()
         assertEquals(original, vm.smsReview.value)
         assertFalse(vm.busy.value)
         assertEquals(R.string.error_storage, vm.message.value)

@@ -43,7 +43,8 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, transferEnabl
                    onExportJson: () -> Unit, onExportCsv: () -> Unit, onImport: () -> Unit,
                    onHideOnStartup: (Boolean) -> Unit, onAllowScreenshots: (Boolean) -> Unit,
                    onUseWanGrouping: (Boolean) -> Unit, onDifferenceUsesNet: (Boolean) -> Unit, onAbout: () -> Unit,
-                   pendingSmsCount: Int = 0, onSmsHistory: () -> Unit = {}, onSmsInfo: () -> Unit = {}) {
+                   pendingSmsCount: Int = 0, onSmsHistory: () -> Unit = {}, onSmsInfo: () -> Unit = {},
+                   onSmsCardIncluded: (String, Boolean) -> Unit = { _, _ -> }) {
     val palette = LocalBookPalette.current
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { SectionHeading(stringResource(R.string.tab_settings)) }
@@ -59,6 +60,18 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, transferEnabl
                 Button(onClick = onSmsInfo, icon = Icons.Outlined.Info,
                     contentDescription = stringResource(R.string.sms_permissions_title),
                     style = ButtonStyle.TextButton, modifier = Modifier.size(48.dp))
+            }
+            // 卡列表由补查建立，新发现的卡默认导入，这里只负责关掉不想记的卡。
+            if (data.settings.smsCards.isNotEmpty()) {
+                LedgerDivider()
+                BookText(stringResource(R.string.sms_card_title), weight = FontWeight.Medium)
+                BookText(stringResource(R.string.sms_card_hint), size = 13.sp, color = palette.secondary)
+                data.settings.smsCards.forEach { card ->
+                    // 账务隐藏时尾号同样打码，与页面上其它金额、名称的遮罩保持一致。
+                    val label = stringResource(R.string.sms_card_label,
+                        if (hidden) stringResource(R.string.privacy_mask) else card.tail)
+                    SettingRow(label, card.included, !busy) { onSmsCardIncluded(card.tail, it) }
+                }
             }
         } }
         item { LedgerCard {
@@ -116,6 +129,23 @@ private fun ChoiceRow(label: String, selected: Boolean, enabled: Boolean, onClic
             if (selected) Box(Modifier.size(10.dp).background(palette.brand, CircleShape))
         }
         BookText(label, Modifier.weight(1f), 15.sp, if (selected) FontWeight.Medium else FontWeight.Normal)
+    }
+}
+
+/** 只有标题的开关行：开关语义仍用完整标题，未开启时文字降为次要色。 */
+@Composable
+private fun SettingRow(title: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    val palette = LocalBookPalette.current
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        .toggleable(checked, enabled = enabled, role = Role.Switch,
+            interactionSource = remember { MutableInteractionSource() }, indication = ripple(color = palette.brand), onValueChange = onChange)
+        .semantics { contentDescription = title },
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        BookText(title, Modifier.weight(1f), color = if (checked) palette.foreground else palette.secondary)
+        Box(Modifier.width(52.dp).height(48.dp).clearAndSetSemantics { }, contentAlignment = Alignment.Center) {
+            ToggleSwitch(onValueChange = onChange, checkedState = checked, enabledSwitch = enabled,
+                modifier = Modifier.requiredSize(52.dp, 32.dp))
+        }
     }
 }
 

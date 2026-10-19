@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
@@ -95,11 +96,17 @@ fun BookApp(vm: BookViewModel) {
     var smsPermissionRationale by remember { mutableStateOf(false) }
     var enableSmsAfterSettings by remember { mutableStateOf(false) }
     var recheckSmsAfterSettings by remember { mutableStateOf(false) }
+    // 小米把「通知类短信」放在另一处系统权限里，每次开启自动登记后都提醒一次。
+    var xiaomiHintVisible by remember { mutableStateOf(false) }
     val smsPermissions = remember { arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS) }
+    val enableSms: () -> Unit = {
+        vm.setSmsEnabled(true)
+        if (isXiaomiRom(context)) xiaomiHintVisible = true
+    }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         smsPermission = hasSmsReadPermission(context)
         when {
-            smsPermission -> { enableSmsAfterSettings = false; vm.setSmsEnabled(true) }
+            smsPermission -> { enableSmsAfterSettings = false; enableSms() }
             // 系统仍会弹窗时只提示一句，下次点开关会再问；
             // 不再弹窗（选过“不再询问”或被设备策略禁止）才引导到应用权限设置页。
             context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.READ_SMS) == true ->
@@ -109,7 +116,7 @@ fun BookApp(vm: BookViewModel) {
     }
     val requestSmsPermission: () -> Unit = {
         when {
-            hasSmsReadPermission(context) -> vm.setSmsEnabled(true)
+            hasSmsReadPermission(context) -> enableSms()
             context.findActivity()?.shouldShowRequestPermissionRationale(Manifest.permission.READ_SMS) == true ->
                 smsPermissionRationale = true
             else -> permissionLauncher.launch(smsPermissions)
@@ -140,7 +147,7 @@ fun BookApp(vm: BookViewModel) {
                 smsPermission = hasSmsReadPermission(context)
                 if (enableSmsAfterSettings && smsPermission) {
                     enableSmsAfterSettings = false
-                    vm.setSmsEnabled(true)
+                    enableSms()
                 }
                 if (recheckSmsAfterSettings) {
                     recheckSmsAfterSettings = false
@@ -175,7 +182,7 @@ fun BookApp(vm: BookViewModel) {
         lifecycleState.isAtLeast(Lifecycle.State.RESUMED) && !aboutVisible && !updateDialogVisible && !chooseImportMode &&
         !confirmReplace && !privateEditorVisible && !smsPermissionRationale && !smsHistoryVisible && !smsInfoVisible &&
         !transferBusy && transferTask == null
-    val modalVisible = aboutVisible || updateDialogVisible || chooseImportMode || confirmReplace || privateEditorVisible ||
+    val modalVisible = xiaomiHintVisible || aboutVisible || updateDialogVisible || chooseImportMode || confirmReplace || privateEditorVisible ||
         smsReviewVisible || smsPermissionRationale || smsInfoVisible
     CompositionLocalProvider(LocalBookSnackbar provides snackbar, LocalAllowScreenshots provides state.data.settings.allowScreenshots,
         LocalUseWanGrouping provides state.data.settings.useWanGrouping) {
@@ -198,7 +205,9 @@ fun BookApp(vm: BookViewModel) {
                             smsScanState, onBack = { smsHistoryVisible = false }, onReveal = vm::togglePrivacy,
                             onRecheck = { if (hasSmsReadPermission(context)) vm.recheckSmsInbox() else requestSmsPermission() },
                             onInfo = { smsInfoVisible = true },
-                            onImport = { vm.resolveSmsRecord(it, import = true) }, onIgnore = { vm.resolveSmsRecord(it, import = false) })
+                            onImport = { vm.resolveSmsRecord(it, import = true) }, onIgnore = { vm.resolveSmsRecord(it, import = false) },
+                            cards = state.data.settings.smsCards, cardFilter = state.data.settings.smsCardFilter,
+                            onSelectCard = vm::selectSmsCardFilter)
                         tab == 0 -> AssetsScreen(state.data, month, hidden, busy,
                             vm::openAssets, { deleteAsset = it }, currentMonth = vm.thisMonth,
                             onMonthSelected = vm::selectMonth)
@@ -220,7 +229,7 @@ fun BookApp(vm: BookViewModel) {
                             onDifferenceUsesNet = vm::setDifferenceUsesNet,
                             onAbout = { aboutVisible = true },
                             pendingSmsCount = smsReview.incomes.size, onSmsHistory = openSmsHistory,
-                            onSmsInfo = { smsInfoVisible = true })
+                            onSmsInfo = { smsInfoVisible = true }, onSmsCardIncluded = vm::setSmsCardIncluded)
                     }
                     if (!modalVisible) BookSnackbarHost(Modifier.align(Alignment.BottomCenter))
                 }
@@ -255,7 +264,7 @@ fun BookApp(vm: BookViewModel) {
                 BookText(stringResource(R.string.sms_permission_hint), size = 14.sp)
                 BookText(stringResource(R.string.sms_history_local_hint), size = 13.sp, color = palette.secondary)
                 if (!smsPermission) BookText(stringResource(R.string.sms_unavailable), size = 13.sp)
-                if (isXiaomiDevice()) BookText(stringResource(R.string.sms_notification_permission_hint), size = 13.sp)
+                if (isXiaomiRom(context)) BookText(stringResource(R.string.sms_notification_permission_hint), size = 13.sp)
             }
         }
         if (smsPermissionRationale) {
@@ -264,6 +273,18 @@ fun BookApp(vm: BookViewModel) {
                     smsPermissionRationale = false
                     permissionLauncher.launch(smsPermissions)
                 }) { BookText(stringResource(R.string.sms_permission_hint)) }
+        }
+        // 小米的通知类短信靠另一处系统开关，开启自动登记后直接引导过去。
+        if (xiaomiHintVisible) {
+            EditorDialog(stringResource(R.string.sms_notification_title), busy = false,
+                onClose = { xiaomiHintVisible = false },
+                saveLabel = stringResource(R.string.sms_system_permissions),
+                cancelLabel = stringResource(R.string.sms_notification_later), onSave = {
+                    xiaomiHintVisible = false
+                    // 从系统权限页返回后自动补查，不必再手动点一次。
+                    recheckSmsAfterSettings = true
+                    openAppPermissionSettings(context)
+                }) { BookText(stringResource(R.string.sms_notification_permission_hint)) }
         }
         if (chooseImportMode) {
             EditorDialog(stringResource(R.string.import_choose_title), busy = transferBusy, onClose = vm::cancelImport,
@@ -304,13 +325,39 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-private fun isXiaomiDevice() = Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true)
+/** 小米权限中心的包名，同时也是判断是否跑在小米系统上的兼底。 */
+private const val SecurityCenterPackage = "com.miui.securitycenter"
 
-/** 小米的通知类短信由额外系统权限控制，引导至权限编辑页，其他设备进入应用详情页。 */
+/**
+ * 澎湃 OS 把「通知类短信」放在另一处系统权限里。
+ *
+ * 同一机型刷了类原生 ROM 就没有这套开关，因此不看厂商或品牌，只看系统本身。
+ */
+private fun isXiaomiRom(context: Context): Boolean {
+    if (!readSystemProperty("ro.miui.ui.version.name").isNullOrEmpty()) return true
+    if (!readSystemProperty("ro.mi.os.version.name").isNullOrEmpty()) return true
+    val incremental = Build.VERSION.INCREMENTAL.uppercase()
+    if ("MIUI" in incremental || "HYPEROS" in incremental) return true
+    // 少数定制 ROM 不写版本属性，但保留了小米权限中心，同样需要走这个入口。
+    return runCatching {
+        context.packageManager.getPackageInfo(SecurityCenterPackage, PackageManager.PackageInfoFlags.of(0))
+        true
+    }.getOrDefault(false)
+}
+
+/** SystemProperties 是隐藏 API，读不到时按“不是小米系统”处理。 */
+@Suppress("PrivateAPI")
+private fun readSystemProperty(key: String): String? = runCatching {
+    Class.forName("android.os.SystemProperties")
+        .getMethod("get", String::class.java)
+        .invoke(null, key) as? String
+}.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+
+/** 澎湃 OS 的通知类短信由额外系统权限控制，引导至权限编辑页，其他设备进入应用详情页。 */
 private fun openAppPermissionSettings(context: Context) {
-    if (isXiaomiDevice()) {
+    if (isXiaomiRom(context)) {
         val editor = Intent("miui.intent.action.APP_PERM_EDITOR")
-            .setPackage("com.miui.securitycenter")
+            .setPackage(SecurityCenterPackage)
             .putExtra("extra_pkgname", context.packageName)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (runCatching { context.startActivity(editor) }.isSuccess) return

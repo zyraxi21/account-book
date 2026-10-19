@@ -165,7 +165,7 @@ class BookViewModel(
                         _smsIncomeRecords.value = records
                         refreshDraftChannels(data)
                         refreshSmsReview(records.filter { it.status == SmsIncomeStatus.PENDING }
-                            .map { ParsedIcbcIncome(it.title, it.amount, it.receivedAt, it.fingerprint) })
+                            .map { ParsedIcbcIncome(it.title, it.amount, it.receivedAt, it.fingerprint, it.cardTail) })
                         updatePrivacyVisibility()
                         if (!wasSmsEnabled && data.settings.smsAutoImportEnabled) smsScanRequested = true
                         launchRequestedSmsScan()
@@ -274,20 +274,34 @@ class BookViewModel(
         if (_privacyHidden.value || _busy.value) return
         _smsReview.value = _smsReview.value.let { it.copy(selected = if (selected) it.incomes.map { income -> income.fingerprint }.toSet() else emptySet()) }
     }
-    fun resolveSmsReview(import: Boolean) {
+    fun resolveSmsReview(excludedCards: Set<String> = emptySet()) {
         if (!allowEdit()) return
         val review = _smsReview.value
-        if (review.selected.isEmpty()) return
+        if (review.incomes.isEmpty()) return
+        // 勾选的入账；未勾选与属于被排除卡的记录直接忽略，只有点“稍后”才保留待入账。
+        val all = review.incomes.map { it.fingerprint }.toSet()
+        val skipped = review.incomes.filter { income ->
+            income.fingerprint !in review.selected || income.cardTail?.let { it in excludedCards } == true
+        }.map { it.fingerprint }.toSet()
+        val target = all - skipped
         perform(null) {
-            val result = repository.resolveSmsIncomes(review.selected, import)
-            _message.value = smsResolutionMessage(result, import)
-            deferredSms = deferredSms + review.incomes.map { it.fingerprint }
+            if (skipped.isNotEmpty()) repository.resolveSmsIncomes(skipped, import = false)
+            val result = if (target.isEmpty()) SmsResolutionResult(ignored = skipped.size)
+                else repository.resolveSmsIncomes(target, import = true)
+            _message.value = smsResolutionMessage(result, import = true)
+            deferredSms = deferredSms + all
             val current = _smsReview.value
-            _smsReview.value = current.copy(incomes = current.incomes.filterNot { it.fingerprint in review.selected },
-                selected = current.selected - review.selected,
+            _smsReview.value = current.copy(incomes = current.incomes.filterNot { it.fingerprint in all },
+                selected = current.selected - all,
                 visible = current.incomes.any { it.fingerprint !in deferredSms })
         }
     }
+
+    /** 关闭导入的卡会把该卡尚未入账的记录转为忽略，因此需要刷新记录列表。 */
+    fun setSmsCardIncluded(tail: String, included: Boolean) = saveSetting { repository.setSmsCardIncluded(tail, included) }
+
+    /** 只是记录查看偏好，不改动任何识别结果。 */
+    fun selectSmsCardFilter(tail: String?) = saveSetting { repository.setSmsCardFilter(tail) }
 
     fun resolveSmsRecord(fingerprint: String, import: Boolean) {
         if (!allowEdit()) return

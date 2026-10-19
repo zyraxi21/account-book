@@ -23,6 +23,7 @@ import com.microsoft.fluentui.icons.searchbaricons.Arrowback
 import com.microsoft.fluentui.theme.token.controlTokens.ButtonStyle
 import com.microsoft.fluentui.tokenized.controls.Button
 import io.github.zyraxi21.accountbook.R
+import io.github.zyraxi21.accountbook.domain.SmsCard
 import io.github.zyraxi21.accountbook.domain.SmsIncomeRecord
 import io.github.zyraxi21.accountbook.domain.SmsIncomeStatus
 import io.github.zyraxi21.accountbook.ui.SmsScanUiState
@@ -31,13 +32,17 @@ import io.github.zyraxi21.accountbook.ui.theme.LocalBookPalette
 
 private enum class SmsFilter(@param:StringRes val label: Int) {
     ALL(R.string.sms_filter_all), PENDING(R.string.sms_status_pending),
-    IGNORED(R.string.sms_status_ignored), RECORDED(R.string.sms_status_imported);
+    RECORDED(R.string.sms_status_imported), MATCHED(R.string.sms_status_matched),
+    IGNORED(R.string.sms_status_ignored), PROCESSED(R.string.sms_status_processed);
 
+    // 一个状态只对应一个分类，避免“已入账”里混进“账本已有”或“历史已处理”的记录。
     fun includes(status: SmsIncomeStatus) = when (this) {
         ALL -> true
         PENDING -> status == SmsIncomeStatus.PENDING
+        RECORDED -> status == SmsIncomeStatus.IMPORTED
+        MATCHED -> status == SmsIncomeStatus.MATCHED
         IGNORED -> status == SmsIncomeStatus.IGNORED
-        RECORDED -> status == SmsIncomeStatus.IMPORTED || status == SmsIncomeStatus.MATCHED
+        PROCESSED -> status == SmsIncomeStatus.PROCESSED
     }
 }
 
@@ -46,10 +51,15 @@ private enum class SmsFilter(@param:StringRes val label: Int) {
 fun SmsHistoryScreen(records: List<SmsIncomeRecord>, hidden: Boolean, busy: Boolean,
                      enabled: Boolean, scanState: SmsScanUiState, onBack: () -> Unit,
                      onReveal: () -> Unit, onRecheck: () -> Unit, onInfo: () -> Unit,
-                     onImport: (String) -> Unit, onIgnore: (String) -> Unit) {
+                     onImport: (String) -> Unit, onIgnore: (String) -> Unit,
+                     cards: List<SmsCard> = emptyList(), cardFilter: String? = null,
+                     onSelectCard: (String?) -> Unit = {}) {
     val palette = LocalBookPalette.current
     var filter by remember { mutableStateOf(SmsFilter.ALL) }
-    val filtered = remember(records, filter) { records.filter { filter.includes(it.status) } }
+    // 卡筛选只按尾号过滤；尾号为空的老记录在选中某张卡时不显示。
+    val filtered = remember(records, filter, cardFilter) {
+        records.filter { filter.includes(it.status) && (cardFilter == null || it.cardTail == cardFilter) }
+    }
     Column(Modifier.fillMaxSize().testTag("sms_history")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onBack, icon = SearchBarIcons.Arrowback, contentDescription = stringResource(R.string.back),
@@ -85,10 +95,27 @@ fun SmsHistoryScreen(records: List<SmsIncomeRecord>, hidden: Boolean, busy: Bool
                             .testTag("sms_filter_${option.name}").semantics { selected = filter == option })
                 }
             }
+            // 卡尾号筛选：全部或某张卡，与上面的状态分类叠加生效。
+            if (cards.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val options: List<String?> = listOf(null) + cards.map { it.tail }
+                options.forEach { tail ->
+                    Button(onClick = { onSelectCard(tail) },
+                        text = tail ?: stringResource(R.string.sms_card_all),
+                        style = if (cardFilter == tail) ButtonStyle.Button else ButtonStyle.OutlinedButton,
+                        modifier = Modifier.width(IntrinsicSize.Max).heightIn(min = 48.dp)
+                            .testTag("sms_card_${tail ?: "ALL"}").semantics { selected = cardFilter == tail })
+                }
+            }
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("sms_history_list"),
                 contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (filtered.isEmpty()) item {
-                    LedgerCard { SectionHeading(stringResource(R.string.sms_history_empty), stringResource(R.string.sms_history_empty_hint)) }
+                    // 分类为空只说明这一类没有记录；只有一条记录都没有且从未补查过时才引导开启。
+                    val guide = records.isEmpty() && scanState == SmsScanUiState.Idle
+                    LedgerCard {
+                        SectionHeading(stringResource(R.string.sms_history_empty),
+                            if (guide) stringResource(R.string.sms_history_empty_hint) else null)
+                    }
                 }
                 items(filtered, key = { it.fingerprint }) { record ->
                     LedgerCard(Modifier.testTag("sms_record_${record.fingerprint}")) {
@@ -104,12 +131,11 @@ fun SmsHistoryScreen(records: List<SmsIncomeRecord>, hidden: Boolean, busy: Bool
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             BookText(formatDateTime(record.receivedAt), Modifier.weight(1f), 13.sp, color = palette.secondary)
+                            // 未按卡筛选时也能看出这条属于哪张卡。
+                            record.cardTail?.let { tail ->
+                                BookText(stringResource(R.string.sms_card_label, tail), size = 13.sp, color = palette.secondary)
+                            }
                             MoneyText(record.amount, hidden = false)
-                        }
-                        when (record.status) {
-                            SmsIncomeStatus.MATCHED -> BookText(stringResource(R.string.sms_history_matched_hint), size = 13.sp, color = palette.secondary)
-                            SmsIncomeStatus.PROCESSED -> BookText(stringResource(R.string.sms_history_legacy_hint), size = 13.sp, color = palette.secondary)
-                            else -> Unit
                         }
                         if (record.canImport) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically) {
