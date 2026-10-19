@@ -43,7 +43,8 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
                    onUseWanGrouping: (Boolean) -> Unit, onDifferenceUsesNet: (Boolean) -> Unit, onAbout: () -> Unit,
                    pendingSmsCount: Int = 0, onReviewSms: () -> Unit = {},
                    smsScanState: SmsScanUiState = SmsScanUiState.Idle,
-                   onRecheckSms: () -> Unit = {}, onGrantSms: () -> Unit = {}) {
+                   onRecheckSms: () -> Unit = {}, onGrantSms: () -> Unit = {},
+                   showNotificationSmsHint: Boolean = false, onNotificationSmsSettings: () -> Unit = {}) {
     val palette = LocalBookPalette.current
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { SectionHeading(stringResource(R.string.tab_settings)) }
@@ -55,6 +56,11 @@ fun SettingsScreen(data: BookData, hidden: Boolean, busy: Boolean, smsPermission
                 BookText(stringResource(R.string.sms_unavailable), size = 13.sp, color = palette.brand)
             }
             if (data.settings.smsAutoImportEnabled) {
+                if (showNotificationSmsHint) {
+                    BookText(stringResource(R.string.sms_notification_permission_hint), size = 13.sp, color = palette.secondary)
+                    Button(onClick = onNotificationSmsSettings, text = stringResource(R.string.sms_notification_permission_settings),
+                        style = ButtonStyle.TextButton, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp))
+                }
                 val status = when (smsScanState) {
                     SmsScanUiState.Idle -> null
                     SmsScanUiState.Scanning -> stringResource(R.string.sms_scan_running)

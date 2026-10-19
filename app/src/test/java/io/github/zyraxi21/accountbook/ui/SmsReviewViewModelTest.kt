@@ -193,7 +193,7 @@ class SmsReviewViewModelTest {
         assertNull(scanned.message.value)
     }
 
-    @Test fun recheckBypassesTheOldCheckpointAndReopensDeferredItems() {
+    @Test fun recheckOnReturnBypassesTheOldCheckpointAndReopensDeferredItems() {
         val queriedSince = mutableListOf<Instant?>()
         val oldCheckpoint = Instant.parse("2026-10-19T09:00:00Z")
         val reader = object : SmsInboxReader {
@@ -212,7 +212,10 @@ class SmsReviewViewModelTest {
         scanned.onForeground()
         scanned.dismissSmsReview()
         assertFalse(scanned.smsReview.value.visible)
+        scanned.obscureInBackground()
         scanned.recheckSmsInbox()
+        assertEquals(listOf(oldCheckpoint), queriedSince)
+        scanned.onForeground()
         assertEquals(listOf(oldCheckpoint, null), queriedSince)
         assertTrue(scanned.smsReview.value.visible)
         assertEquals(SmsScanUiState.Complete(0, 0), scanned.smsScanState.value)

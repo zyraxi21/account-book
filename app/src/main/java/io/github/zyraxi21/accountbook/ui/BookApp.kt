@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -88,6 +89,7 @@ fun BookApp(vm: BookViewModel) {
     var smsPermission by remember { mutableStateOf(hasSmsReadPermission(context)) }
     var smsPermissionRationale by remember { mutableStateOf(false) }
     var enableSmsAfterSettings by remember { mutableStateOf(false) }
+    var recheckSmsAfterSettings by remember { mutableStateOf(false) }
     val smsPermissions = remember { arrayOf(Manifest.permission.READ_SMS, Manifest.permission.RECEIVE_SMS) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         smsPermission = hasSmsReadPermission(context)
@@ -132,6 +134,10 @@ fun BookApp(vm: BookViewModel) {
                 if (enableSmsAfterSettings && smsPermission) {
                     enableSmsAfterSettings = false
                     vm.setSmsEnabled(true)
+                }
+                if (recheckSmsAfterSettings) {
+                    recheckSmsAfterSettings = false
+                    vm.recheckSmsInbox()
                 }
             }
         }
@@ -202,7 +208,12 @@ fun BookApp(vm: BookViewModel) {
                             onAbout = { aboutVisible = true },
                             pendingSmsCount = if (state.data.settings.smsAutoImportEnabled) smsReview.incomes.size else 0,
                             onReviewSms = vm::openSmsReview, smsScanState = smsScanState,
-                            onRecheckSms = vm::recheckSmsInbox, onGrantSms = requestSmsPermission)
+                            onRecheckSms = vm::recheckSmsInbox, onGrantSms = requestSmsPermission,
+                            showNotificationSmsHint = isXiaomiDevice(),
+                            onNotificationSmsSettings = {
+                                recheckSmsAfterSettings = true
+                                openAppPermissionSettings(context)
+                            })
                     }
                     if (!modalVisible) BookSnackbarHost(Modifier.align(Alignment.BottomCenter))
                 }
@@ -273,8 +284,17 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-/** 系统不再展示权限弹窗时，只能由用户到应用权限页手动开启。 */
+private fun isXiaomiDevice() = Build.MANUFACTURER.equals("Xiaomi", ignoreCase = true)
+
+/** 小米的通知类短信由额外系统权限控制，引导至权限编辑页，其他设备进入应用详情页。 */
 private fun openAppPermissionSettings(context: Context) {
+    if (isXiaomiDevice()) {
+        val editor = Intent("miui.intent.action.APP_PERM_EDITOR")
+            .setPackage("com.miui.securitycenter")
+            .putExtra("extra_pkgname", context.packageName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (runCatching { context.startActivity(editor) }.isSuccess) return
+    }
     val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
         Uri.fromParts("package", context.packageName, null))
     // 部分 ROM 会拒绝该跳转，失败时静默处理，不因跳不过去而崩溃。

@@ -100,6 +100,8 @@ Room 2.8.5 通过 SQLCipher 4.19.1 的 `SupportOpenHelperFactory` 打开加密�
 
 设置页显示本次补查的检查条数与识别收入数，并区分系统未允许读取、读取或保存失败两种情况；启动补查仍保持静默，只有发现待确认收入才弹窗。点击“重新补查短信”会重新检查收件箱中的全部工行短信，不受旧扫描进度限制；已入账或忽略的短信仍按指纹跳过，历史手动收入需自行核对后决定是否入账。
 
+小米/Redmi 设备还需要单独允许“通知类短信”。澎湃 OS 的路径为：本应用的系统权限页 → 其他权限 → 设置相关 → 通知类短信 → 始终允许。普通“读取短信与彩信”已允许时，这项额外权限仍可能被拒绝，导致工行短信查询返回 0 条。应用设置提供“通知类短信权限设置”入口，返回后自动重新补查，不使用此前的扫描进度，以找回授权前漏读的短信。该入口只在小米设备启用自动登记后显示。
+
 `READ_SMS` 和 `RECEIVE_SMS` 都属于安装器必须放行的受限权限；普通运行时授权无法替代安装器的放行。读取权限被拒绝或安装器未放行时，设置页显示不可用状态，粘贴解析仍可使用。开关反映用户保存的偏好，缺权限时仍可直接关闭。已开启旧版自动登记的用户，升级后可点击“授权读取短信”补充授权，无须关闭再重新开启该开关。读取前同时检查系统对实际读取操作的限制，避免仅凭授权开关误判可读；应用不会在每次启动时自动弹权限框。[Android 读取短信权限说明](https://developer.android.com/reference/android/Manifest.permission#READ_SMS)、[接收短信权限说明](https://developer.android.com/reference/android/Manifest.permission#RECEIVE_SMS)、[实际操作权限检查](https://developer.android.com/reference/androidx/core/content/PermissionChecker)
 
 自行安装时可用以下方式，先在设备开启 USB 调试，并将 SDK `platform-tools` 加入 PATH：

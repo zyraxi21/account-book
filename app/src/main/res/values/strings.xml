@@ -85,6 +85,8 @@
     <string name="sms_permission_hint">读取短信权限用于补查95588的工行收入。识别到的项目、金额和日期仅保存在本机加密账本中，由你核对后决定是否入账。拒绝授权仍可使用粘贴解析。</string>
     <string name="sms_permission_allow">继续授权</string>
     <string name="sms_read_permission_allow">授权读取短信</string>
+    <string name="sms_notification_permission_hint">小米/Redmi 设备还需在系统权限的“其他权限 → 设置相关”中允许“通知类短信”，才能读取工行短信。</string>
+    <string name="sms_notification_permission_settings">通知类短信权限设置</string>
     <string name="sms_scan_running">正在补查工行收入短信……</string>
     <string name="sms_scan_permission_required">系统未允许读取短信，启动补查未执行。请检查短信权限及系统隐私限制。</string>
     <string name="sms_scan_failed">读取或保存短信失败，补查进度已保留，可重新补查。</string>
